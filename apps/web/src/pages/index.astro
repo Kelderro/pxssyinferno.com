@@ -1,0 +1,92 @@
+---
+import Layout from '../layouts/Layout.astro'
+import { sanityClient, urlFor } from '../lib/sanity'
+
+const products = await sanityClient.fetch(`
+  *[_type == "product"] | order(_createdAt desc) {
+    _id,
+    title,
+    slug,
+    price,
+    isOnSale,
+    salePrice,
+    sizes,
+    "mainImage": images[0]
+  }
+`)
+---
+
+<Layout title="Pussy Inferno | Apparel Store">
+  <!-- Hero Banner -->
+  <section class="border-b border-brand-border py-20 px-6 bg-gradient-to-b from-brand-black to-brand-card text-center">
+    <div class="max-w-4xl mx-auto space-y-6">
+      <span class="text-brand-red text-xs font-black tracking-[0.3em] uppercase border border-brand-red/30 px-3 py-1 bg-brand-red/10 inline-block">
+        Hand-Painted & Wearable Art
+      </span>
+      <h1 class="text-6xl md:text-8xl font-display tracking-tight text-white uppercase">
+        RAW. UNFILTERED. INFERNO.
+      </h1>
+      <p class="text-brand-muted text-base md:text-lg max-w-xl mx-auto">
+        Each garment is hand-painted individually. No mass production. No two pieces are ever identical.
+      </p>
+    </div>
+  </section>
+
+  <!-- Product Catalog -->
+  <section class="max-w-7xl mx-auto px-6 py-16">
+    <div class="flex justify-between items-end mb-10 pb-4 border-b border-brand-border">
+      <h2 class="text-3xl font-display tracking-wider uppercase">Active Collection</h2>
+      <span class="text-brand-muted text-xs font-semibold">{products.length} PIECES AVAILABLE</span>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+      {products.map((item: any) => {
+        const displayPrice = item.isOnSale && item.salePrice ? item.salePrice : item.price
+        return (
+          <a href={`/products/${item.slug.current}`} class="group bg-brand-card border border-brand-border overflow-hidden block transition hover:border-brand-red">
+            <!-- Image Frame -->
+            <div class="relative aspect-square overflow-hidden bg-black">
+              {item.isOnSale && (
+                <span class="absolute top-3 left-3 z-10 bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">
+                  SALE
+                </span>
+              )}
+              {item.mainImage ? (
+                <img 
+                  src={urlFor(item.mainImage).width(600).height(600).format('webp').url()} 
+                  alt={item.title} 
+                  loading="lazy"
+                  class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+              ) : (
+                <div class="w-full h-full flex items-center justify-center text-brand-muted text-xs uppercase tracking-widest">
+                  No Image
+                </div>
+              )}
+            </div>
+
+            <!-- Info Bar -->
+            <div class="p-5 space-y-3">
+              <h3 class="text-lg font-bold uppercase tracking-wide group-hover:text-brand-red transition">
+                {item.title}
+              </h3>
+              
+              <div class="flex items-center justify-between">
+                <div class="text-base font-extrabold flex items-center gap-2">
+                  <span class="text-white">${displayPrice}</span>
+                  {item.isOnSale && <span class="line-through text-brand-muted text-xs">${item.price}</span>}
+                </div>
+
+                {item.sizes && item.sizes.length > 0 && (
+                  <div class="text-[10px] text-brand-muted font-mono uppercase">
+                    {item.sizes.join(' · ')}
+                  </div>
+                )}
+              </div>
+            </div>
+          </a>
+        )
+      })}
+    </div>
+  </section>
+</Layout>

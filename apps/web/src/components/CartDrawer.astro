@@ -1,0 +1,118 @@
+<!-- Cart Overlay Backdrop -->
+<div id="cart-backdrop" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden transition-opacity"></div>
+
+<!-- Slide-over Drawer -->
+<aside id="cart-drawer" class="fixed top-0 right-0 h-full w-full max-w-md bg-brand-card border-l border-brand-border z-50 transform translate-x-full transition-transform duration-300 flex flex-col justify-between">
+  <!-- Header -->
+  <div class="p-6 border-b border-brand-border flex justify-between items-center">
+    <h2 class="text-xl font-display uppercase tracking-wider text-white">Your Cart</h2>
+    <button id="close-cart-btn" class="text-brand-muted hover:text-brand-red text-2xl font-mono">✕</button>
+  </div>
+
+  <!-- Cart Items List Container -->
+  <div id="cart-items" class="p-6 overflow-y-auto flex-1 space-y-4">
+    <p id="cart-empty-msg" class="text-brand-muted text-xs uppercase tracking-widest text-center py-12">Your cart is currently empty.</p>
+  </div>
+
+  <!-- Footer / Checkout Section -->
+  <div class="p-6 border-t border-brand-border space-y-4 bg-brand-black">
+    <div class="flex justify-between items-center text-sm font-bold uppercase tracking-wider">
+      <span class="text-brand-muted">Subtotal</span>
+      <span id="cart-subtotal" class="text-white font-mono text-base">$0.00</span>
+    </div>
+    <button id="checkout-btn" class="w-full py-4 bg-brand-red text-black font-display text-lg uppercase tracking-widest hover:bg-white transition">
+      PROCEED TO CHECKOUT
+    </button>
+  </div>
+</aside>
+
+<script>
+  // Global Cart State Manager
+  interface CartItem {
+    id: string;
+    title: string;
+    price: number;
+    image: string;
+    size: string;
+    quantity: number;
+  }
+
+  function getCart(): CartItem[] {
+    return JSON.parse(localStorage.getItem('pi_cart') || '[]')
+  }
+
+  function saveCart(cart: CartItem[]) {
+    localStorage.setItem('pi_cart', JSON.stringify(cart))
+    updateCartUI()
+  }
+
+  function updateCartUI() {
+    const cart = getCart()
+    const container = document.getElementById('cart-items')
+    const emptyMsg = document.getElementById('cart-empty-msg')
+    const subtotalEl = document.getElementById('cart-subtotal')
+    const countBadge = document.getElementById('cart-count-badge')
+
+    // Update count badges across header
+    const totalCount = cart.reduce((acc, item) => acc + item.quantity, 0)
+    if (countBadge) countBadge.textContent = totalCount.toString()
+
+    // Calculate subtotal
+    const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0)
+    if (subtotalEl) subtotalEl.textContent = `$${subtotal.toFixed(2)}`
+
+    if (!container) return
+
+    if (cart.length === 0) {
+      if (emptyMsg) emptyMsg.classList.remove('hidden')
+      container.innerHTML = `<p class="text-brand-muted text-xs uppercase tracking-widest text-center py-12">Your cart is currently empty.</p>`
+      return
+    }
+
+    container.innerHTML = cart.map((item, idx) => `
+      <div class="flex gap-4 border-b border-brand-border/50 pb-4 items-center">
+        <img src="${item.image}" alt="${item.title}" class="w-16 h-16 object-cover bg-black border border-brand-border" />
+        <div class="flex-1 space-y-1">
+          <h4 class="text-sm font-bold uppercase text-white">${item.title}</h4>
+          <p class="text-[10px] text-brand-muted font-mono uppercase">Size: ${item.size} | $${item.price}</p>
+          <div class="flex items-center gap-3 pt-1">
+            <span class="text-xs font-mono text-white">Qty: ${item.quantity}</span>
+            <button onclick="window.removeCartItem(${idx})" class="text-[10px] text-brand-red uppercase font-bold hover:underline">Remove</button>
+          </div>
+        </div>
+      </div>
+    `).join('')
+  }
+
+  // Drawer Toggle Helpers
+  const drawer = document.getElementById('cart-drawer')
+  const backdrop = document.getElementById('cart-backdrop')
+
+  function openCart() {
+    drawer?.classList.remove('translate-x-full')
+    backdrop?.classList.remove('hidden')
+    updateCartUI()
+  }
+
+  function closeCart() {
+    drawer?.classList.add('translate-x-full')
+    backdrop?.classList.add('hidden')
+  }
+
+  // Event Listeners
+  document.getElementById('close-cart-btn')?.addEventListener('click', closeCart)
+  backdrop?.addEventListener('click', closeCart)
+
+  // Listen for custom trigger events from anywhere on the site
+  window.addEventListener('open-cart', openCart)
+
+  // Expose remove handler globally for dynamically rendered items
+  ;(window as any).removeCartItem = (index: number) => {
+    const cart = getCart()
+    cart.splice(index, 1)
+    saveCart(cart)
+  }
+
+  // Initial load sync
+  updateCartUI()
+</script>

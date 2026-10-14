@@ -1,0 +1,268 @@
+---
+import Layout from '../../layouts/Layout.astro'
+import { sanityClient, urlFor } from '../../lib/sanity'
+import { PortableText } from '@portabletext/astro'
+
+// 1. Generate static routes for all products at build time (SSG)
+export async function getStaticPaths() {
+  const products = await sanityClient.fetch(`
+    *[_type == "product" && defined(slug.current)] {
+      "slug": slug.current
+    }
+  `)
+
+  return products.map((item: { slug: string }) => ({
+    params: { slug: item.slug },
+  }))
+}
+
+const { slug } = Astro.params
+
+// 2. Fetch full product details
+const product = await sanityClient.fetch(
+  `
+  *[_type == "product" && slug.current == $slug][0] {
+    _id,
+    title,
+    price,
+    isOnSale,
+    salePrice,
+    isSoldOut,
+    description,
+    sizes,
+    images
+  }
+`,
+  { slug }
+)
+
+if (!product) {
+  return Astro.redirect('/404')
+}
+
+const currentPrice = product.isOnSale && product.salePrice ? product.salePrice : product.price
+
+// Pre-build image URLs for the client-side cart script
+const mainImageUrl = product.images && product.images.length > 0 
+  ? urlFor(product.images[0]).width(800).format('webp').url() 
+  : ''
+---
+
+<Layout title={`${product.title} | Pussy Inferno`}>
+  <section class="max-w-7xl mx-auto px-6 py-12">
+    <!-- Breadcrumb -->
+    <nav class="text-xs font-bold uppercase tracking-widest text-brand-muted mb-8 flex items-center gap-2">
+      <a href="/" class="hover:text-brand-red transition">Shop</a>
+      <span>/</span>
+      <span class="text-white">{product.title}</span>
+    </nav>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-12">
+      <!-- Image Gallery Column (7 Cols) -->
+      <div class="lg:col-span-7 space-y-4">
+        <!-- Main Large Image Viewer -->
+        <div class="bg-brand-card border border-brand-border aspect-square relative overflow-hidden">
+          {product.isSoldOut && (
+            <span class="absolute top-4 left-4 z-10 bg-neutral-900 border border-neutral-700 text-neutral-400 text-xs font-black uppercase px-3 py-1.5 tracking-widest">
+              SOLD OUT
+            </span>
+          )}
+          {product.images && product.images.length > 0 ? (
+            <img
+              id="main-product-image"
+              src={urlFor(product.images[0]).width(1200).format('webp').url()}
+              alt={product.title}
+              class="w-full h-full object-cover transition-opacity duration-300"
+            />
+          ) : (
+            <div class="w-full h-full flex items-center justify-center text-brand-muted text-xs uppercase tracking-widest">
+              No Image Available
+            </div>
+          )}
+        </div>
+
+        <!-- Thumbnail Selector Bar -->
+        {product.images && product.images.length > 1 && (
+          <div class="flex gap-4 overflow-x-auto pb-2">
+            {product.images.map((img: any, idx: number) => (
+              <button
+                class="thumbnail-btn flex-shrink-0 w-20 h-20 bg-brand-card border border-brand-border focus:border-brand-red hover:border-brand-red transition overflow-hidden"
+                data-img-url={urlFor(img).width(1200).format('webp').url()}
+              >
+                <img
+                  src={urlFor(img).width(200).height(200).format('webp').url()}
+                  alt={`Thumbnail ${idx + 1}`}
+                  class="w-full h-full object-cover pointer-events-none"
+                />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <!-- Details & Actions Column (5 Cols) -->
+      <div class="lg:col-span-5 space-y-8">
+        <div>
+          <span class="text-brand-red text-xs font-black tracking-[0.3em] uppercase block mb-2">
+            Hand-Painted Wearable Art
+          </span>
+          <h1 class="text-4xl md:text-5xl font-display uppercase tracking-wide text-white leading-none">
+            {product.title}
+          </h1>
+
+          <!-- Price Display -->
+          <div class="mt-4 text-2xl font-extrabold flex items-center gap-3 font-mono">
+            <span class={product.isSoldOut ? 'text-brand-muted' : 'text-white'}>
+              ${currentPrice}
+            </span>
+            {product.isOnSale && !product.isSoldOut && (
+              <span class="line-through text-brand-muted text-base">${product.price}</span>
+            )}
+            {product.isOnSale && !product.isSoldOut && (
+              <span class="text-xs bg-brand-red text-black font-sans font-black uppercase px-2 py-0.5">
+                SALE
+              </span>
+            )}
+          </div>
+        </div>
+
+        <hr class="border-brand-border" />
+
+        <!-- Size Selection -->
+        {product.sizes && product.sizes.length > 0 && (
+          <div class="space-y-3">
+            <div class="flex justify-between items-center text-xs font-bold uppercase tracking-wider">
+              <span class="text-white">Select Size</span>
+              <a href="/faq" class="text-brand-muted underline hover:text-brand-red transition">Size Guide</a>
+            </div>
+            <div class="grid grid-cols-4 gap-3">
+              {product.sizes.map((size: string, idx: number) => (
+                <button 
+                  class={`size-btn border border-brand-border bg-brand-card py-3 text-xs font-mono font-bold uppercase tracking-wider hover:border-brand-red transition ${
+                    idx === 0 ? 'bg-brand-red text-black font-extrabold border-brand-red' : 'text-white'
+                  }`}
+                  data-size={size}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <!-- Add To Cart / Sold Out Button -->
+        <div>
+          {product.isSoldOut ? (
+            <button 
+              disabled 
+              class="w-full py-5 bg-neutral-900 border border-neutral-800 text-neutral-500 font-display text-xl uppercase tracking-widest cursor-not-allowed"
+            >
+              ARCHIVED / SOLD OUT
+            </button>
+          ) : (
+            <button 
+              id="add-to-cart-btn"
+              class="w-full py-5 bg-brand-red text-black font-display text-xl uppercase tracking-widest hover:bg-white transition-colors duration-200 shadow-[0_0_20px_rgba(255,42,0,0.3)]"
+            >
+              ADD TO CART
+            </button>
+          )}
+        </div>
+
+        <!-- Description & Collapsible Info Accordions -->
+        <div class="space-y-4 pt-4">
+          {product.description && (
+            <div class="text-brand-muted text-sm leading-relaxed prose prose-invert max-w-none">
+              <PortableText value={product.description} />
+            </div>
+          )}
+
+          <!-- Accordion 1: Care Instructions -->
+          <details class="group bg-brand-card border border-brand-border transition-colors">
+            <summary class="cursor-pointer p-4 text-xs font-bold uppercase tracking-widest text-white flex justify-between items-center select-none hover:text-brand-red">
+              <span>Hand-Painted Care Guide</span>
+              <span class="text-brand-red font-mono group-open:rotate-45 transition-transform">+</span>
+            </summary>
+            <div class="p-4 pt-0 text-brand-muted text-xs leading-relaxed border-t border-brand-border/40 mt-2">
+              Wash inside out on cold/gentle cycle or hand-wash. Line dry only. Do not iron directly over hand-painted surfaces.
+            </div>
+          </details>
+
+          <!-- Accordion 2: Shipping & Guarantee -->
+          <details class="group bg-brand-card border border-brand-border transition-colors">
+            <summary class="cursor-pointer p-4 text-xs font-bold uppercase tracking-widest text-white flex justify-between items-center select-none hover:text-brand-red">
+              <span>Shipping & Guarantee</span>
+              <span class="text-brand-red font-mono group-open:rotate-45 transition-transform">+</span>
+            </summary>
+            <div class="p-4 pt-0 text-brand-muted text-xs leading-relaxed border-t border-brand-border/40 mt-2">
+              Orders ship within 2-4 business days. Worldwide tracked shipping available. Every piece is sealed with water-resistant fabric paint medium.
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+  </section>
+</Layout>
+
+<!-- Client-side Interactive Logic -->
+<script define:vars={{ product, currentPrice, mainImageUrl }}>
+  // 1. Thumbnail image switcher
+  const mainImage = document.getElementById('main-product-image')
+  const thumbnails = document.querySelectorAll('.thumbnail-btn')
+
+  thumbnails.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const newSrc = btn.getAttribute('data-img-url')
+      if (mainImage && newSrc) {
+        mainImage.src = newSrc
+      }
+    })
+  })
+
+  // 2. Size selection logic
+  let selectedSize = product.sizes && product.sizes.length > 0 ? product.sizes[0] : 'OS'
+
+  const sizeBtns = document.querySelectorAll('.size-btn')
+  sizeBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      sizeBtns.forEach(b => {
+        b.classList.remove('bg-brand-red', 'text-black', 'font-extrabold', 'border-brand-red')
+        b.classList.add('text-white')
+      })
+      btn.classList.add('bg-brand-red', 'text-black', 'font-extrabold', 'border-brand-red')
+      btn.classList.remove('text-white')
+      selectedSize = btn.getAttribute('data-size') || 'OS'
+    })
+  })
+
+  // 3. Add to Cart action handler
+  const addToCartBtn = document.getElementById('add-to-cart-btn')
+  if (addToCartBtn) {
+    addToCartBtn.addEventListener('click', () => {
+      const cart = JSON.parse(localStorage.getItem('pi_cart') || '[]')
+
+      const newItem = {
+        id: product._id,
+        title: product.title,
+        price: Number(currentPrice),
+        image: mainImageUrl,
+        size: selectedSize,
+        quantity: 1
+      }
+
+      // Check if exact item + size exists
+      const existingIdx = cart.findIndex((i) => i.id === newItem.id && i.size === newItem.size)
+      if (existingIdx > -1) {
+        cart[existingIdx].quantity += 1
+      } else {
+        cart.push(newItem)
+      }
+
+      // Persist to local storage
+      localStorage.setItem('pi_cart', JSON.stringify(cart))
+
+      // Trigger Cart Drawer slide-over
+      window.dispatchEvent(new CustomEvent('open-cart'))
+    })
+  }
+</script>

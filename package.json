@@ -1,0 +1,12 @@
+{
+  "name": "pxssyinferno",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "dev:studio": "pnpm --filter studio dev",
+    "dev": "concurrently \"pnpm dev:web\" \"pnpm dev:studio\""
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}

@@ -1,0 +1,16 @@
+minimumReleaseAgeExclude:
+  - '@sanity/access-ui@6.19.0'
+  - '@sanity/diff@6.19.0'
+  - '@sanity/mutator@6.19.0'
+  - '@sanity/schema@6.19.0'
+  - '@sanity/types@6.19.0'
+  - '@sanity/util@6.19.0'
+  - '@sanity/validation@6.19.0'
+  - '@sanity/vision@6.19.0'
+  - '@tanstack/react-virtual@3.14.18'
+  - '@tanstack/virtual-core@3.19.3'
+  - framer-motion@14.1.1
+  - motion-dom@14.1.1
+  - motion-utils@14.1.1
+  - motion@14.1.1
+  - sanity@6.19.0

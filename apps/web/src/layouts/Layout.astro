@@ -1,0 +1,119 @@
+---
+import '../styles/global.css'
+import CartDrawer from '../components/CartDrawer.astro'
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const { 
+  title = "Pussy Inferno | Hand-Painted Wearable Art", 
+  description = "Unique, hand-painted apparel drops and custom statement pieces." 
+} = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en" class="bg-brand-black text-white antialiased">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+  </head>
+  <body class="min-h-screen flex flex-col justify-between selection:bg-brand-red selection:text-black">
+    
+    <!-- Top Announcement Marquee -->
+    <div class="bg-brand-red text-black text-xs font-black tracking-widest uppercase py-1.5 px-4 overflow-hidden whitespace-nowrap">
+      <div class="animate-marquee inline-block">
+        🔥 ALL PIECES 1-OF-1 OR LIMITED HAND-PAINTED EDITIONS • FREE SHIPPING OVER $200 🔥
+      </div>
+    </div>
+
+    <!-- Header / Navbar -->
+    <header class="border-b border-brand-border bg-brand-black/80 backdrop-blur-md sticky top-0 z-40">
+      <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+        <a href="/" class="text-3xl font-display tracking-wider text-brand-red uppercase hover:opacity-90 transition">
+          PUSSY INFERNO
+        </a>
+
+        <nav class="hidden md:flex items-center space-x-8 text-sm font-bold tracking-wider uppercase">
+          <a href="/" class="hover:text-brand-red transition">Shop</a>
+          <a href="/about" class="hover:text-brand-red transition">About</a>
+          <a href="/faq" class="hover:text-brand-red transition">FAQ</a>
+          <a href="/terms" class="hover:text-brand-red transition">Terms</a>
+          <a href="/contact" class="hover:text-brand-red transition">Contact</a>
+        </nav>
+
+        <!-- Cart Trigger Button -->
+        <button 
+          id="open-cart-btn"
+          class="relative border border-brand-border px-4 py-2 text-xs font-bold uppercase tracking-widest hover:border-brand-red transition flex items-center gap-2"
+        >
+          <span>Cart</span>
+          <span id="cart-count-badge" class="bg-brand-red text-black px-1.5 py-0.5 rounded-full text-[10px] font-black">0</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Dynamic Page Content -->
+    <main class="flex-grow">
+      <slot />
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-brand-border bg-brand-black py-16 mt-20">
+      <div class="max-w-7xl mx-auto px-6 grid grid-cols-1 md:grid-cols-4 gap-10">
+        <div class="space-y-4">
+          <h2 class="text-2xl font-display text-brand-red">PUSSY INFERNO</h2>
+          <p class="text-brand-muted text-sm leading-relaxed">
+            Hand-painted streetwear, jackets, and wearable art.
+          </p>
+        </div>
+
+        <div>
+          <h3 class="text-xs font-black uppercase tracking-widest text-neutral-400 mb-4">Navigation</h3>
+          <ul class="space-y-2 text-sm font-semibold">
+            <li><a href="/" class="hover:text-brand-red transition">Shop Collection</a></li>
+            <li><a href="/about" class="hover:text-brand-red transition">Our Story</a></li>
+            <li><a href="/faq" class="hover:text-brand-red transition">Care & FAQs</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 class="text-xs font-black uppercase tracking-widest text-neutral-400 mb-4">Legal</h3>
+          <ul class="space-y-2 text-sm font-semibold">
+            <li><a href="/terms" class="hover:text-brand-red transition">Terms & Conditions</a></li>
+            <li><a href="/contact" class="hover:text-brand-red transition">Custom Enquiries</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 class="text-xs font-black uppercase tracking-widest text-neutral-400 mb-4">Newsletter</h3>
+          <div class="flex">
+            <input type="email" placeholder="YOUR EMAIL" class="bg-brand-card border border-brand-border text-xs px-3 py-2 text-white focus:outline-none focus:border-brand-red w-full" />
+            <button class="bg-brand-red text-black text-xs font-black px-4 hover:bg-white transition">JOIN</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="max-w-7xl mx-auto px-6 mt-12 pt-6 border-t border-brand-border/50 text-center md:text-left text-xs text-brand-muted">
+        © {new Date().getFullYear()} Pussy Inferno. All rights reserved.
+      </div>
+    </footer>
+
+    <!-- Slide-over Cart Drawer Component -->
+    <CartDrawer />
+
+  </body>
+</html>
+
+<script>
+  // Connect navbar cart button to dispatch the open event to CartDrawer
+  document.getElementById('open-cart-btn')?.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('open-cart'))
+  })
+</script>

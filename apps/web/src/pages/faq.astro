@@ -1,0 +1,54 @@
+---
+import Layout from '../layouts/Layout.astro'
+import { sanityClient } from '../lib/sanity'
+import { PortableText } from '@portabletext/astro'
+
+// Fetch the FAQ singleton document from Sanity
+const faqData = await sanityClient.fetch(`
+  *[_type == "faq" && _id == "faqPage"][0] {
+    questions
+  }
+`)
+---
+
+<Layout title="FAQ & Care Guide | Pussy Inferno">
+  <section class="max-w-4xl mx-auto px-6 py-16">
+    <!-- Header Section -->
+    <div class="mb-12 pb-6 border-b border-brand-border">
+      <span class="text-brand-red text-xs font-black tracking-[0.3em] uppercase block mb-3">
+        Help & Information
+      </span>
+      <h1 class="text-4xl md:text-6xl font-display tracking-wider uppercase text-white">
+        Frequently Asked Questions
+      </h1>
+      <p class="text-brand-muted text-sm mt-2">
+        Everything you need to know about hand-painted care instructions, custom commission slots, and shipping.
+      </p>
+    </div>
+
+    <!-- Accordion List -->
+    <div class="space-y-4">
+      {
+        faqData?.questions && faqData.questions.length > 0 ? (
+          faqData.questions.map((item: any) => (
+            <details class="group bg-brand-card border border-brand-border open:border-brand-red transition-colors duration-300">
+              <summary class="cursor-pointer p-6 text-base md:text-lg font-bold uppercase tracking-wide flex justify-between items-center select-none text-white hover:text-brand-red transition-colors">
+                <span>{item.question}</span>
+                <span class="text-brand-red font-mono text-xl group-open:rotate-45 transition-transform duration-300">
+                  +
+                </span>
+              </summary>
+              <div class="px-6 pb-6 pt-2 text-brand-muted prose prose-invert max-w-none text-sm leading-relaxed border-t border-brand-border/40">
+                <PortableText value={item.answer} />
+              </div>
+            </details>
+          ))
+        ) : (
+          <div class="text-center py-16 border border-brand-border bg-brand-card text-brand-muted text-xs uppercase tracking-widest">
+            No FAQs published yet. Check back soon.
+          </div>
+        )
+      }
+    </div>
+  </section>
+</Layout>

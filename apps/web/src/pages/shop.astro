@@ -1,0 +1,148 @@
+---
+import Layout from '../layouts/Layout.astro'
+import { sanityClient, urlFor } from '../lib/sanity'
+
+// Fetch all active products ordered by newest
+const products = await sanityClient.fetch(`
+  *[_type == "product"] | order(_createdAt desc) {
+    _id,
+    title,
+    slug,
+    price,
+    isOnSale,
+    salePrice,
+    sizes,
+    category,
+    isSoldOut,
+    "mainImage": images[0],
+    "hoverImage": images[1]
+  }
+`)
+
+// Extract unique categories dynamically for filter tabs
+const categories = ['All', ...new Set(products.map((p: any) => p.category).filter(Boolean))]
+---
+
+<Layout title="Shop All Hand-Painted Apparel | Pussy Inferno">
+  <section class="max-w-7xl mx-auto px-6 py-12">
+    
+    <!-- Page Header & Title -->
+    <div class="mb-10 pb-6 border-b border-brand-border flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <div>
+        <span class="text-brand-red text-xs font-black tracking-[0.3em] uppercase block mb-2">
+          Full Catalog
+        </span>
+        <h1 class="text-5xl md:text-7xl font-display tracking-wider uppercase text-white">
+          THE VAULT
+        </h1>
+      </div>
+      <p class="text-brand-muted text-sm max-w-sm">
+        Every piece is custom hand-painted and sealed for durability. Limited quantities per style.
+      </p>
+    </div>
+
+    <!-- Filter & Sort Bar -->
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-10 pb-4 border-b border-brand-border/50 text-xs font-bold uppercase tracking-wider">
+      
+      <!-- Category Tabs -->
+      <div class="flex flex-wrap gap-2">
+        {categories.map((cat: string) => (
+          <button 
+            class="px-4 py-2 border border-brand-border hover:border-brand-red bg-brand-card transition text-white focus:bg-brand-red focus:text-black focus:border-brand-red"
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
+      <!-- Item Counter -->
+      <div class="text-brand-muted">
+        Showing <span class="text-white font-mono">{products.length}</span> Unique Pieces
+      </div>
+    </div>
+
+    <!-- Product Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+      {products.map((item: any) => {
+        const displayPrice = item.isOnSale && item.salePrice ? item.salePrice : item.price
+        
+        return (
+          <a 
+            href={`/products/${item.slug.current}`} 
+            class="group bg-brand-card border border-brand-border overflow-hidden block transition duration-300 hover:border-brand-red relative"
+          >
+            <!-- Status Badges -->
+            <div class="absolute top-3 left-3 z-20 flex flex-col gap-1.5 items-start">
+              {item.isSoldOut ? (
+                <span class="bg-neutral-800 text-neutral-400 text-[10px] font-black uppercase px-2 py-1 tracking-widest border border-neutral-700">
+                  SOLD OUT
+                </span>
+              ) : item.isOnSale ? (
+                <span class="bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">
+                  SALE
+                </span>
+              ) : null}
+            </div>
+
+            <!-- Image Container with Hover Preview Toggle -->
+            <div class="relative aspect-square overflow-hidden bg-black">
+              {item.mainImage ? (
+                <img 
+                  src={urlFor(item.mainImage).width(700).height(700).format('webp').url()} 
+                  alt={item.title} 
+                  loading="lazy"
+                  class={`w-full h-full object-cover transition-all duration-500 ${
+                    item.hoverImage 
+                      ? 'group-hover:opacity-0 scale-100' 
+                      : 'group-hover:scale-105'
+                  }`}
+                />
+              ) : (
+                <div class="w-full h-full flex items-center justify-center text-brand-muted text-xs uppercase tracking-widest">
+                  No Image
+                </div>
+              )}
+
+              {/* Secondary Hover Image (if exists) */}
+              {item.hoverImage && (
+                <img 
+                  src={urlFor(item.hoverImage).width(700).height(700).format('webp').url()} 
+                  alt={`${item.title} preview`}
+                  loading="lazy"
+                  class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
+                />
+              )}
+            </div>
+
+            <!-- Product Details Footer -->
+            <div class="p-5 space-y-3 bg-brand-card">
+              <div class="flex justify-between items-start gap-2">
+                <h2 class="text-lg font-bold uppercase tracking-wide group-hover:text-brand-red transition">
+                  {item.title}
+                </h2>
+                
+                {/* Price Display */}
+                <div class="text-base font-extrabold flex items-center gap-2 whitespace-nowrap">
+                  <span class={item.isSoldOut ? 'text-brand-muted line-through' : 'text-white'}>
+                    ${displayPrice}
+                  </span>
+                  {item.isOnSale && !item.isSoldOut && (
+                    <span class="line-through text-brand-muted text-xs">${item.price}</span>
+                  )}
+                </div>
+              </div>
+
+              <!-- Sizes list -->
+              {item.sizes && item.sizes.length > 0 && (
+                <div class="flex items-center justify-between pt-2 border-t border-brand-border/40 text-[11px]">
+                  <span class="text-brand-muted uppercase font-mono">Available Sizes:</span>
+                  <span class="text-white font-mono uppercase font-bold">{item.sizes.join(' · ')}</span>
+                </div>
+              )}
+            </div>
+          </a>
+        )
+      })}
+    </div>
+  </section>
+</Layout>
