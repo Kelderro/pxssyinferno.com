@@ -1,0 +1,147 @@
+---
+import Layout from '../../layouts/Layout.astro'
+import { sanityClient, urlFor } from '../../lib/sanity'
+import {
+  PRODUCT_FIELDS,
+  variantPriceRange,
+  isOnSale,
+  isSoldOut,
+  isCustom,
+  productSizes,
+  formatEUR,
+  categoryLabel,
+  type Product,
+} from '../../lib/catalog'
+
+export async function getStaticPaths() {
+  const cats: string[] = await sanityClient.fetch(
+    `array::unique(*[_type == "product" && defined(category)].category)`
+  )
+  return (cats || []).map((category) => ({ params: { category } }))
+}
+
+const { category } = Astro.params
+
+const products: Product[] = await sanityClient.fetch(
+  `*[_type == "product" && category == $category] | order(_createdAt desc) { ${PRODUCT_FIELDS} }`,
+  { category }
+)
+
+const allCats: string[] = await sanityClient.fetch(
+  `array::unique(*[_type == "product" && defined(category)].category)`
+)
+
+const label = categoryLabel(category)
+---
+
+<Layout title={`${label} | Pussy Inferno`}>
+  <section class="max-w-7xl mx-auto px-6 py-12">
+
+    <!-- Breadcrumb -->
+    <nav class="text-xs font-bold uppercase tracking-widest text-brand-muted mb-8 flex items-center gap-2">
+      <a href="/shop" class="hover:text-brand-red transition">Shop</a>
+      <span>/</span>
+      <span class="text-white">{label}</span>
+    </nav>
+
+    <!-- Header -->
+    <div class="mb-10 pb-6 border-b border-brand-border">
+      <span class="text-brand-red text-xs font-black tracking-[0.3em] uppercase block mb-2">Category</span>
+      <h1 class="text-5xl md:text-7xl font-display tracking-wider uppercase text-white">{label}</h1>
+    </div>
+
+    <!-- Category switcher -->
+    <div class="flex flex-wrap gap-2 mb-10 text-xs font-bold uppercase tracking-wider">
+      <a href="/shop" class="px-4 py-2 border border-brand-border bg-brand-card text-white hover:border-brand-red transition">All</a>
+      {allCats.map((cat) => (
+        <a
+          href={`/shop/${cat}`}
+          class:list={[
+            'px-4 py-2 border transition',
+            cat === category
+              ? 'border-brand-red bg-brand-red text-black'
+              : 'border-brand-border bg-brand-card text-white hover:border-brand-red',
+          ]}
+        >
+          {categoryLabel(cat)}
+        </a>
+      ))}
+    </div>
+
+    {products.length === 0 ? (
+      <p class="text-center py-20 text-brand-muted text-xs uppercase tracking-widest border border-brand-border bg-brand-card">
+        No pieces in this category yet.
+      </p>
+    ) : (
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+        {products.map((item) => {
+          const range = variantPriceRange(item)
+          const onSale = isOnSale(item)
+          const soldOut = isSoldOut(item)
+          const custom = isCustom(item)
+          const sizes = productSizes(item)
+
+          return (
+            <a
+              href={`/products/${item.slug?.current}`}
+              class="group bg-brand-card border border-brand-border overflow-hidden block transition duration-300 hover:border-brand-red relative"
+            >
+              <div class="absolute top-3 left-3 z-20 flex flex-col gap-1.5 items-start">
+                {soldOut ? (
+                  <span class="bg-neutral-800 text-neutral-400 text-[10px] font-black uppercase px-2 py-1 tracking-widest border border-neutral-700">SOLD OUT</span>
+                ) : custom ? (
+                  <span class="bg-white text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">MADE TO ORDER</span>
+                ) : onSale ? (
+                  <span class="bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">SALE</span>
+                ) : null}
+              </div>
+
+              <div class="relative aspect-square overflow-hidden bg-black">
+                {item.mainImage ? (
+                  <img
+                    src={urlFor(item.mainImage).width(700).height(700).format('webp').url()}
+                    alt={item.title}
+                    loading="lazy"
+                    class={`w-full h-full object-cover transition-all duration-500 ${
+                      item.hoverImage ? 'group-hover:opacity-0 scale-100' : 'group-hover:scale-105'
+                    }`}
+                  />
+                ) : (
+                  <div class="w-full h-full flex items-center justify-center text-brand-muted text-xs uppercase tracking-widest">No Image</div>
+                )}
+                {item.hoverImage && (
+                  <img
+                    src={urlFor(item.hoverImage).width(700).height(700).format('webp').url()}
+                    alt={`${item.title} preview`}
+                    loading="lazy"
+                    class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
+                  />
+                )}
+              </div>
+
+              <div class="p-5 space-y-3 bg-brand-card">
+                <div class="flex justify-between items-start gap-2">
+                  <h2 class="text-lg font-bold uppercase tracking-wide group-hover:text-brand-red transition">{item.title}</h2>
+                  <div class="text-base font-extrabold flex items-center gap-2 whitespace-nowrap">
+                    <span class={soldOut ? 'text-brand-muted line-through' : 'text-white'}>
+                      {custom || range.varies ? `From ${formatEUR(range.min)}` : formatEUR(range.min)}
+                    </span>
+                    {onSale && !soldOut && !range.varies && (
+                      <span class="line-through text-brand-muted text-xs">{formatEUR(item.price)}</span>
+                    )}
+                  </div>
+                </div>
+                {sizes.length > 0 && (
+                  <div class="flex items-center justify-between pt-2 border-t border-brand-border/40 text-[11px]">
+                    <span class="text-brand-muted uppercase font-mono">Available Sizes:</span>
+                    <span class="text-white font-mono uppercase font-bold">{sizes.join(' · ')}</span>
+                  </div>
+                )}
+              </div>
+            </a>
+          )
+        })}
+      </div>
+    )}
+  </section>
+</Layout>

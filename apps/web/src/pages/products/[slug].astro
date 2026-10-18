@@ -2,6 +2,18 @@
 import Layout from '../../layouts/Layout.astro'
 import { sanityClient, urlFor } from '../../lib/sanity'
 import { PortableText } from '@portabletext/astro'
+import {
+  PRODUCT_DETAIL_FIELDS,
+  effectivePrice,
+  variantPriceRange,
+  isOnSale,
+  isSoldOut,
+  isCustom,
+  productSizes,
+  formatEUR,
+  categoryLabel,
+  type Product,
+} from '../../lib/catalog'
 
 // 1. Generate static routes for all products at build time (SSG)
 export async function getStaticPaths() {
@@ -10,7 +22,6 @@ export async function getStaticPaths() {
       "slug": slug.current
     }
   `)
-
   return products.map((item: { slug: string }) => ({
     params: { slug: item.slug },
   }))
@@ -18,21 +29,9 @@ export async function getStaticPaths() {
 
 const { slug } = Astro.params
 
-// 2. Fetch full product details
-const product = await sanityClient.fetch(
-  `
-  *[_type == "product" && slug.current == $slug][0] {
-    _id,
-    title,
-    price,
-    isOnSale,
-    salePrice,
-    isSoldOut,
-    description,
-    sizes,
-    images
-  }
-`,
+// 2. Fetch full product details (real schema fields)
+const product: Product = await sanityClient.fetch(
+  `*[_type == "product" && slug.current == $slug][0] { ${PRODUCT_DETAIL_FIELDS} }`,
   { slug }
 )
 
@@ -40,29 +39,65 @@ if (!product) {
   return Astro.redirect('/404')
 }
 
-const currentPrice = product.isOnSale && product.salePrice ? product.salePrice : product.price
+const custom = isCustom(product)
+const price = effectivePrice(product)
+const range = variantPriceRange(product)
+const onSale = isOnSale(product)
+const soldOut = isSoldOut(product)
+const sizes = productSizes(product)
+const variants = Array.isArray(product.variants)
+  ? product.variants.map((v: any) => ({ color: v?.color || '', size: v?.size || '', stock: Number(v?.stock) || 0, swatchColor: v?.swatchColor || '', price: Number(v?.price) || 0 }))
+  : []
+const basePrice = Number(product.price) || 0
 
-// Pre-build image URLs for the client-side cart script
-const mainImageUrl = product.images && product.images.length > 0 
-  ? urlFor(product.images[0]).width(800).format('webp').url() 
-  : ''
+// Pre-build image URL for the client-side cart script
+const mainImageUrl =
+  product.images && product.images.length > 0
+    ? urlFor(product.images[0]).width(800).format('webp').url()
+    : ''
+
+// Open Graph share image (absolute https URL from Sanity CDN)
+const ogImage =
+  product.images && product.images.length > 0
+    ? urlFor(product.images[0]).width(1200).height(630).fit('crop').format('jpg').url()
+    : undefined
+
+const productMeta = {
+  _id: product._id,
+  title: product.title,
+  slug: product.slug?.current || slug,
+}
 ---
 
-<Layout title={`${product.title} | Pussy Inferno`}>
+<Layout
+  title={`${product.title} | Pussy Inferno`}
+  description={`${product.title} — hand-painted wearable art by Pussy Inferno.`}
+  image={ogImage}
+>
   <section class="max-w-7xl mx-auto px-6 py-12">
     <!-- Breadcrumb -->
-    <nav class="text-xs font-bold uppercase tracking-widest text-brand-muted mb-8 flex items-center gap-2">
-      <a href="/" class="hover:text-brand-red transition">Shop</a>
+    <nav class="text-xs font-bold uppercase tracking-widest text-brand-muted mb-8 flex items-center gap-2 flex-wrap">
+      <a href="/shop" class="hover:text-brand-red transition">Shop</a>
+      {product.category && (
+        <>
+          <span>/</span>
+          <a href={`/shop/${product.category}`} class="hover:text-brand-red transition">{categoryLabel(product.category)}</a>
+        </>
+      )}
       <span>/</span>
       <span class="text-white">{product.title}</span>
     </nav>
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-12">
-      <!-- Image Gallery Column (7 Cols) -->
+      <!-- Image Gallery Column -->
       <div class="lg:col-span-7 space-y-4">
-        <!-- Main Large Image Viewer -->
         <div class="bg-brand-card border border-brand-border aspect-square relative overflow-hidden">
-          {product.isSoldOut && (
+          {custom && (
+            <span class="absolute top-4 left-4 z-10 bg-white text-black text-xs font-black uppercase px-3 py-1.5 tracking-widest">
+              MADE TO ORDER
+            </span>
+          )}
+          {soldOut && (
             <span class="absolute top-4 left-4 z-10 bg-neutral-900 border border-neutral-700 text-neutral-400 text-xs font-black uppercase px-3 py-1.5 tracking-widest">
               SOLD OUT
             </span>
@@ -81,7 +116,6 @@ const mainImageUrl = product.images && product.images.length > 0
           )}
         </div>
 
-        <!-- Thumbnail Selector Bar -->
         {product.images && product.images.length > 1 && (
           <div class="flex gap-4 overflow-x-auto pb-2">
             {product.images.map((img: any, idx: number) => (
@@ -98,76 +132,6 @@ const mainImageUrl = product.images && product.images.length > 0
             ))}
           </div>
         )}
-      </div>
-
-      <!-- Details & Actions Column (5 Cols) -->
-      <div class="lg:col-span-5 space-y-8">
-        <div>
-          <span class="text-brand-red text-xs font-black tracking-[0.3em] uppercase block mb-2">
-            Hand-Painted Wearable Art
-          </span>
-          <h1 class="text-4xl md:text-5xl font-display uppercase tracking-wide text-white leading-none">
-            {product.title}
-          </h1>
-
-          <!-- Price Display -->
-          <div class="mt-4 text-2xl font-extrabold flex items-center gap-3 font-mono">
-            <span class={product.isSoldOut ? 'text-brand-muted' : 'text-white'}>
-              ${currentPrice}
-            </span>
-            {product.isOnSale && !product.isSoldOut && (
-              <span class="line-through text-brand-muted text-base">${product.price}</span>
-            )}
-            {product.isOnSale && !product.isSoldOut && (
-              <span class="text-xs bg-brand-red text-black font-sans font-black uppercase px-2 py-0.5">
-                SALE
-              </span>
-            )}
-          </div>
-        </div>
-
-        <hr class="border-brand-border" />
-
-        <!-- Size Selection -->
-        {product.sizes && product.sizes.length > 0 && (
-          <div class="space-y-3">
-            <div class="flex justify-between items-center text-xs font-bold uppercase tracking-wider">
-              <span class="text-white">Select Size</span>
-              <a href="/faq" class="text-brand-muted underline hover:text-brand-red transition">Size Guide</a>
-            </div>
-            <div class="grid grid-cols-4 gap-3">
-              {product.sizes.map((size: string, idx: number) => (
-                <button 
-                  class={`size-btn border border-brand-border bg-brand-card py-3 text-xs font-mono font-bold uppercase tracking-wider hover:border-brand-red transition ${
-                    idx === 0 ? 'bg-brand-red text-black font-extrabold border-brand-red' : 'text-white'
-                  }`}
-                  data-size={size}
-                >
-                  {size}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <!-- Add To Cart / Sold Out Button -->
-        <div>
-          {product.isSoldOut ? (
-            <button 
-              disabled 
-              class="w-full py-5 bg-neutral-900 border border-neutral-800 text-neutral-500 font-display text-xl uppercase tracking-widest cursor-not-allowed"
-            >
-              ARCHIVED / SOLD OUT
-            </button>
-          ) : (
-            <button 
-              id="add-to-cart-btn"
-              class="w-full py-5 bg-brand-red text-black font-display text-xl uppercase tracking-widest hover:bg-white transition-colors duration-200 shadow-[0_0_20px_rgba(255,42,0,0.3)]"
-            >
-              ADD TO CART
-            </button>
-          )}
-        </div>
 
         <!-- Description & Collapsible Info Accordions -->
         <div class="space-y-4 pt-4">
@@ -177,7 +141,6 @@ const mainImageUrl = product.images && product.images.length > 0
             </div>
           )}
 
-          <!-- Accordion 1: Care Instructions -->
           <details class="group bg-brand-card border border-brand-border transition-colors">
             <summary class="cursor-pointer p-4 text-xs font-bold uppercase tracking-widest text-white flex justify-between items-center select-none hover:text-brand-red">
               <span>Hand-Painted Care Guide</span>
@@ -188,7 +151,6 @@ const mainImageUrl = product.images && product.images.length > 0
             </div>
           </details>
 
-          <!-- Accordion 2: Shipping & Guarantee -->
           <details class="group bg-brand-card border border-brand-border transition-colors">
             <summary class="cursor-pointer p-4 text-xs font-bold uppercase tracking-widest text-white flex justify-between items-center select-none hover:text-brand-red">
               <span>Shipping & Guarantee</span>
@@ -200,69 +162,602 @@ const mainImageUrl = product.images && product.images.length > 0
           </details>
         </div>
       </div>
+
+      <!-- Details & Actions Column -->
+      <div class="lg:col-span-5 space-y-8">
+        <div>
+          <span class="text-brand-red text-xs font-black tracking-[0.3em] uppercase block mb-2">
+            Hand-Painted Wearable Art
+          </span>
+          <h1 class="text-4xl md:text-5xl font-display uppercase tracking-wide text-white leading-none">
+            {product.title}
+          </h1>
+
+          <!-- Price Display -->
+          <div class="mt-4 text-2xl font-extrabold flex items-center gap-3 font-mono">
+            <span id="product-price" class={soldOut ? 'text-brand-muted' : 'text-white'}>
+              {custom
+                ? `From ${formatEUR(basePrice)}`
+                : range.varies
+                  ? `${formatEUR(range.min)} – ${formatEUR(range.max)}`
+                  : formatEUR(range.min)}
+            </span>
+            {onSale && !soldOut && !custom && !range.varies && (
+              <span class="line-through text-brand-muted text-base">{formatEUR(product.price)}</span>
+            )}
+            {onSale && !soldOut && !custom && !range.varies && (
+              <span class="text-xs bg-brand-red text-black font-sans font-black uppercase px-2 py-0.5">SALE</span>
+            )}
+          </div>
+        </div>
+
+        <hr class="border-brand-border" />
+
+        {custom ? (
+          /* MADE-TO-ORDER CONFIGURATOR */
+          <div id="custom-config" class="space-y-6">
+            <p class="text-brand-muted text-xs leading-relaxed uppercase tracking-wider">
+              This is a made-to-order piece. Configure it below and send a request —
+              we'll reply with a digital mock-up and a final quote to approve before any payment.
+            </p>
+
+            {product.customOptions && product.customOptions.length > 0 && (
+              <div class="space-y-5">
+                {product.customOptions.map((group: any, gi: number) => (
+                  <div class="space-y-2">
+                    <label class="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-1">
+                      {group.label}
+                      {group.required && <span class="text-brand-red">*</span>}
+                    </label>
+
+                    {group.showSwatches && group.choices && group.choices.some((c: any) => c.swatchColor) && (
+                      <div class="flex flex-wrap gap-2 mb-1">
+                        {group.choices.map((c: any) => (
+                          c.swatchColor && (
+                            <button
+                              type="button"
+                              class="swatch-btn w-7 h-7 rounded-full border border-brand-border hover:border-brand-red transition"
+                              style={`background-color:${c.swatchColor}`}
+                              title={c.label}
+                              data-group={gi}
+                              data-value={c.label}
+                            ></button>
+                          )
+                        ))}
+                      </div>
+                    )}
+
+                    <select
+                      class="custom-opt w-full bg-brand-card border border-brand-border text-white text-sm px-3 py-3 focus:outline-none focus:border-brand-red uppercase tracking-wide font-mono"
+                      data-group-index={gi}
+                      data-label={group.label}
+                      data-required={group.required ? 'true' : 'false'}
+                    >
+                      <option value="">Select…</option>
+                      {group.choices && group.choices.map((c: any) => (
+                        <option value={c.label} data-delta={Number(c.priceDelta) || 0}>
+                          {c.label}{Number(c.priceDelta) > 0 ? ` (+${formatEUR(c.priceDelta)})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <!-- Quantity -->
+            <div class="space-y-2">
+              <label class="text-xs font-bold uppercase tracking-wider text-white">Quantity</label>
+              <input
+                id="custom-qty"
+                type="number"
+                min="1"
+                value="1"
+                class="w-24 bg-brand-card border border-brand-border text-white text-sm px-3 py-3 focus:outline-none focus:border-brand-red font-mono"
+              />
+            </div>
+
+            <!-- Estimate -->
+            <div class="flex justify-between items-center border-t border-brand-border pt-4 text-sm font-bold uppercase tracking-wider">
+              <span class="text-brand-muted">Estimated total</span>
+              <span id="custom-estimate" class="text-white font-mono text-lg">{formatEUR(basePrice)}</span>
+            </div>
+            <p class="text-[10px] text-brand-muted uppercase tracking-widest -mt-3">
+              Indicative only — final price confirmed in your quote.
+            </p>
+
+            <!-- Request form -->
+            <form id="custom-request-form" class="space-y-4 border-t border-brand-border pt-6">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <input name="name" required placeholder="YOUR NAME" class="form-field" />
+                <input name="email" type="email" required placeholder="EMAIL" class="form-field" />
+              </div>
+              <input name="phone" placeholder="PHONE (OPTIONAL)" class="form-field w-full" />
+              <textarea name="message" rows="4" placeholder="DESIGN NOTES, MEASUREMENTS, REFERENCES…" class="form-field w-full"></textarea>
+              <!-- honeypot -->
+              <input name="company" tabindex="-1" autocomplete="off" class="hidden" aria-hidden="true" />
+
+              <p id="custom-form-msg" class="hidden text-xs font-bold uppercase tracking-wider"></p>
+
+              <button
+                type="submit"
+                id="custom-submit-btn"
+                class="w-full py-5 bg-brand-red text-black font-display text-xl uppercase tracking-widest hover:bg-white transition-colors duration-200 shadow-[0_0_20px_rgba(255,42,0,0.3)] disabled:opacity-50"
+              >
+                REQUEST CUSTOM DESIGN
+              </button>
+            </form>
+
+            <div id="custom-success" class="hidden text-center border border-brand-red bg-brand-red/10 p-6">
+              <p class="text-brand-red font-display text-xl uppercase tracking-wider mb-2">Request Sent</p>
+              <p class="text-brand-muted text-xs uppercase tracking-wider">
+                Thank you. We'll be in touch with a mock-up and quote shortly.
+              </p>
+            </div>
+          </div>
+        ) : (
+          /* READY-TO-SHIP */
+          <div class="space-y-6">
+            {sizes.length > 0 && (
+              <div class="space-y-3">
+                <div class="flex justify-between items-center text-xs font-bold uppercase tracking-wider">
+                  <span class="text-white">Select Size</span>
+                  <a href="/faq" class="text-brand-muted underline hover:text-brand-red transition">Size Guide</a>
+                </div>
+                <div class="grid grid-cols-4 gap-3" id="size-group">
+                  {sizes.map((size: string) => (
+                    <button
+                      class="size-btn border border-brand-border bg-brand-card py-3 text-xs font-mono font-bold uppercase tracking-wider text-white hover:border-brand-red transition"
+                      data-size={size}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <!-- Colour selector (built by JS when the product has colours, filtered by chosen size) -->
+            <div id="color-wrap" class="space-y-3 hidden">
+              <span class="text-xs font-bold uppercase tracking-wider text-white block">Select Colour</span>
+              <div class="flex flex-wrap gap-3" id="color-group"></div>
+            </div>
+
+            <p id="stock-note" class="text-xs font-mono uppercase tracking-wider text-brand-muted min-h-[1rem]"></p>
+
+            <div>
+              {soldOut ? (
+                <button disabled class="w-full py-5 bg-neutral-900 border border-neutral-800 text-neutral-500 font-display text-xl uppercase tracking-widest cursor-not-allowed">
+                  ARCHIVED / SOLD OUT
+                </button>
+              ) : (
+                <button
+                  id="add-to-cart-btn"
+                  disabled
+                  class="w-full py-5 bg-brand-red text-black font-display text-xl uppercase tracking-widest hover:bg-white transition-colors duration-200 shadow-[0_0_20px_rgba(255,42,0,0.3)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-brand-red"
+                >
+                  ADD TO CART
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <!-- Social share -->
+        <div class="border-t border-brand-border pt-6 space-y-3" data-share-container data-title={product.title} data-image={ogImage}>
+          <p class="text-xs font-bold uppercase tracking-widest text-brand-muted">Share this piece</p>
+          <div class="flex items-center gap-3 flex-wrap">
+            <button type="button" data-share="facebook" aria-label="Share on Facebook" title="Share on Facebook" class="share-btn">
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor"><path d="M13.5 21v-8h2.7l.4-3.1h-3.1V7.9c0-.9.25-1.5 1.5-1.5h1.6V3.6c-.3 0-1.2-.1-2.3-.1-2.3 0-3.9 1.4-3.9 4v2.3H7.6V13h2.3v8h3.6z"/></svg>
+            </button>
+            <button type="button" data-share="x" aria-label="Share on X" title="Share on X" class="share-btn">
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor"><path d="M18.9 2H22l-7.3 8.3L23 22h-6.8l-5.3-6.9L4.8 22H1.7l7.8-8.9L1 2h6.9l4.8 6.3L18.9 2zm-1.2 18h1.7L7.4 3.8H5.6L17.7 20z"/></svg>
+            </button>
+            <button type="button" data-share="pinterest" aria-label="Save to Pinterest" title="Save to Pinterest" class="share-btn">
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.6 19.3c-.1-.8-.2-2 0-2.9l1.2-5s-.3-.6-.3-1.5c0-1.4.8-2.4 1.8-2.4.9 0 1.3.6 1.3 1.4 0 .9-.6 2.2-.9 3.4-.2 1 .5 1.8 1.5 1.8 1.8 0 3-2.3 3-5 0-2.1-1.4-3.6-3.9-3.6-2.9 0-4.6 2.1-4.6 4.5 0 .8.2 1.4.6 1.8.2.2.2.3.1.5l-.2.9c-.1.3-.3.4-.6.2-1.1-.5-1.7-1.8-1.7-3.4 0-2.7 2.3-5.9 6.8-5.9 3.6 0 6 2.6 6 5.4 0 3.7-2.1 6.5-5.1 6.5-1 0-2-.6-2.3-1.2l-.6 2.5c-.2.8-.7 1.7-1.1 2.4A10 10 0 1 0 12 2z"/></svg>
+            </button>
+            <button type="button" data-share="whatsapp" aria-label="Share on WhatsApp" title="Share on WhatsApp" class="share-btn">
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.5A10 10 0 1 0 12 2zm0 18a8 8 0 0 1-4.1-1.1l-.3-.2-2.9.9.9-2.8-.2-.3A8 8 0 1 1 12 20zm4.4-6c-.2-.1-1.4-.7-1.7-.8-.2-.1-.4-.1-.5.1l-.7.9c-.1.2-.3.2-.5.1-1-.4-1.8-.9-2.5-2-.2-.3.2-.3.5-.9.1-.1 0-.3 0-.4l-.7-1.7c-.2-.4-.4-.4-.5-.4h-.5c-.2 0-.4.1-.6.3-.8.8-1 1.9-.5 3.1.9 2 2 2.9 3.9 3.7 1.9.8 1.9.5 2.3.5.5 0 1.4-.6 1.6-1.1.2-.5.2-1 .1-1.1z"/></svg>
+            </button>
+            <button type="button" data-share="instagram" aria-label="Share on Instagram" title="Share on Instagram" class="share-btn">
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
+            </button>
+            <button type="button" data-share="email" aria-label="Share by email" title="Share by email" class="share-btn">
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+            </button>
+            <button type="button" data-share="copy" aria-label="Copy link" title="Copy link" class="share-btn">
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+            </button>
+            <span id="share-feedback" class="hidden text-[10px] uppercase tracking-widest text-brand-red font-bold"></span>
+          </div>
+        </div>
+
+      </div>
     </div>
   </section>
 </Layout>
 
-<!-- Client-side Interactive Logic -->
-<script define:vars={{ product, currentPrice, mainImageUrl }}>
-  // 1. Thumbnail image switcher
-  const mainImage = document.getElementById('main-product-image')
-  const thumbnails = document.querySelectorAll('.thumbnail-btn')
+<style>
+  .form-field {
+    background-color: var(--color-brand-card);
+    border: 1px solid var(--color-brand-border);
+    color: #fff;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.75rem 0.75rem;
+  }
+  .form-field:focus {
+    outline: none;
+    border-color: var(--color-brand-red);
+  }
+  .form-field::placeholder {
+    color: var(--color-brand-muted);
+  }
+  .swatch-dot {
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.55rem;
+    line-height: 1;
+    color: #fff;
+    flex-shrink: 0;
+  }
+</style>
 
-  thumbnails.forEach((btn) => {
+<!-- Client-side Interactive Logic -->
+<script define:vars={{ custom, basePrice, currentPrice: price, mainImageUrl, productMeta, variants }}>
+  // 1. Thumbnail image switcher (shared)
+  const mainImage = document.getElementById('main-product-image')
+  document.querySelectorAll('.thumbnail-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const newSrc = btn.getAttribute('data-img-url')
-      if (mainImage && newSrc) {
-        mainImage.src = newSrc
-      }
+      if (mainImage && newSrc) mainImage.src = newSrc
     })
   })
 
-  // 2. Size selection logic
-  let selectedSize = product.sizes && product.sizes.length > 0 ? product.sizes[0] : 'OS'
+  if (!custom) {
+    // ---------- READY-TO-SHIP: size -> colour, stock + price gated ----------
+    const V = (Array.isArray(variants) ? variants : []).map((v) => ({
+      color: v.color || '', size: v.size || '', stock: Number(v.stock) || 0,
+      price: Number(v.price) || 0, swatchColor: v.swatchColor || '',
+    }))
+    const hasVariants = V.length > 0
+    const sizeList = [...new Set(V.map((v) => v.size).filter(Boolean))]
+    const colorList = [...new Set(V.map((v) => v.color).filter(Boolean))]
+    const hasSizes = sizeList.length > 0
+    const hasColors = colorList.length > 0
 
-  const sizeBtns = document.querySelectorAll('.size-btn')
-  sizeBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      sizeBtns.forEach(b => {
-        b.classList.remove('bg-brand-red', 'text-black', 'font-extrabold', 'border-brand-red')
-        b.classList.add('text-white')
+    const hexByColor = {}
+    V.forEach((v) => { if (v.swatchColor && !hexByColor[v.color]) hexByColor[v.color] = v.swatchColor })
+    const NAME_HEX = {
+      black: '#111111', white: '#f5f5f5', bone: '#e3dac9', cream: '#f3ead3',
+      grey: '#808080', gray: '#808080', 'blood red': '#7a0a0a', red: '#c01616',
+      orange: '#ff7a1a', 'inferno orange': '#ff5a1f', navy: '#1b2440', blue: '#2457d6',
+      green: '#2f7d3a', olive: '#6b7a3a', pink: '#e36fa0', purple: '#6d3fb0',
+      brown: '#6b4a2b', tan: '#c2a06b', silver: '#c0c0c0', gold: '#caa02a', beige: '#d8c3a5',
+    }
+    const cssColorValid = (c) => { try { return !!(window.CSS && CSS.supports && CSS.supports('color', c)) } catch { return false } }
+    function colorHex(name) {
+      if (hexByColor[name]) return hexByColor[name]
+      const key = (name || '').toLowerCase().trim()
+      if (NAME_HEX[key]) return NAME_HEX[key]
+      if (cssColorValid(name)) return name
+      return ''
+    }
+
+    const sizeBtns = Array.from(document.querySelectorAll('.size-btn'))
+    const colorWrap = document.getElementById('color-wrap')
+    const colorGroup = document.getElementById('color-group')
+    const stockNote = document.getElementById('stock-note')
+    const addBtn = document.getElementById('add-to-cart-btn')
+    const priceEl = document.getElementById('product-price')
+
+    const fmtEUR = (n) => '€' + (Number.isInteger(n) ? String(n) : n.toFixed(2))
+    const vPrice = (v) => (v.price > 0 ? v.price : Number(currentPrice))
+
+    // null = a real choice the shopper has not made yet
+    let selSize = !hasSizes ? '' : (sizeList.length === 1 ? sizeList[0] : null)
+    let selColor = !hasColors ? '' : null
+    let comboPrice = Number(currentPrice)
+
+    const activeCls = ['bg-brand-red', 'text-black', 'font-extrabold', 'border-brand-red']
+    function setActiveSize(btn) {
+      sizeBtns.forEach((b) => { activeCls.forEach((c) => b.classList.remove(c)); if (!b.disabled) b.classList.add('text-white') })
+      if (btn) { btn.classList.add(...activeCls); btn.classList.remove('text-white') }
+    }
+    function setActiveColor(btn) {
+      Array.from(colorGroup.querySelectorAll('.color-btn')).forEach((b) => b.classList.remove('border-brand-red', 'ring-2', 'ring-brand-red'))
+      if (btn) btn.classList.add('border-brand-red', 'ring-2', 'ring-brand-red')
+    }
+
+    const matchSize = (v) => !hasSizes || selSize === null || v.size === selSize
+    const matchColor = (v) => !hasColors || selColor === null || v.color === selColor
+    const sizeInStock = (size) => V.some((v) => v.size === size && v.stock > 0)
+    const colorInStockForSize = (color, size) => V.some((v) => (!hasSizes || v.size === size) && v.color === color && v.stock > 0)
+    const ready = () => (!hasSizes || selSize !== null) && (!hasColors || selColor !== null)
+
+    function refreshPrice() {
+      if (!hasVariants || !priceEl) return
+      const ms = V.filter((v) => matchSize(v) && matchColor(v))
+      const src = ms.length ? ms : V
+      const ps = src.map(vPrice)
+      const min = Math.min(...ps), max = Math.max(...ps)
+      comboPrice = min
+      priceEl.textContent = min === max ? fmtEUR(min) : fmtEUR(min) + ' – ' + fmtEUR(max)
+    }
+
+    function update() {
+      refreshPrice()
+      const r = ready()
+      let stock = Infinity
+      if (hasVariants) stock = r ? V.filter((v) => matchSize(v) && matchColor(v)).reduce((s, v) => s + v.stock, 0) : 0
+      if (addBtn) addBtn.disabled = !(!hasVariants || (r && stock > 0))
+      if (!stockNote) return
+      stockNote.classList.remove('text-brand-red'); stockNote.classList.add('text-brand-muted')
+      if (!hasVariants) { stockNote.textContent = ''; return }
+      if (!r) { stockNote.textContent = (hasSizes && selSize === null) ? 'Select a size' : 'Select a colour'; return }
+      if (stock <= 0) { stockNote.textContent = 'This combination is out of stock'; stockNote.classList.add('text-brand-red'); stockNote.classList.remove('text-brand-muted') }
+      else if (stock <= 5) stockNote.textContent = 'Only ' + stock + ' left'
+      else stockNote.textContent = 'In stock'
+    }
+
+    function selectColor(c, btn) { selColor = c; setActiveColor(btn); update() }
+
+    function buildColors() {
+      if (!hasColors || !colorGroup || !colorWrap) { update(); return }
+      colorWrap.classList.remove('hidden')
+      colorGroup.innerHTML = ''
+      colorList.forEach((c) => {
+        const ok = colorInStockForSize(c, selSize)
+        const hex = colorHex(c)
+        const b = document.createElement('button')
+        b.className = 'color-btn inline-flex items-center gap-2 border px-3 py-2 text-xs font-mono font-bold uppercase tracking-wider transition ' +
+          (ok ? 'border-brand-border bg-brand-card text-white hover:border-brand-red' : 'border-brand-border/40 text-brand-muted opacity-50 cursor-not-allowed')
+        const dot = document.createElement('span')
+        dot.style.cssText = 'width:1.1rem;height:1.1rem;border-radius:9999px;border:1px solid rgba(255,255,255,0.35);display:inline-flex;align-items:center;justify-content:center;font-size:0.55rem;line-height:1;color:#fff;flex-shrink:0;'
+        if (hex) dot.style.background = hex
+        else { dot.style.background = '#2a2a2a'; dot.textContent = (c[0] || '?').toUpperCase() }
+        const label = document.createElement('span'); label.textContent = c
+        if (!ok) label.style.textDecoration = 'line-through'
+        b.appendChild(dot); b.appendChild(label)
+        b.dataset.color = c; b.disabled = !ok
+        if (ok) b.addEventListener('click', () => selectColor(c, b))
+        colorGroup.appendChild(b)
       })
-      btn.classList.add('bg-brand-red', 'text-black', 'font-extrabold', 'border-brand-red')
-      btn.classList.remove('text-white')
-      selectedSize = btn.getAttribute('data-size') || 'OS'
-    })
-  })
-
-  // 3. Add to Cart action handler
-  const addToCartBtn = document.getElementById('add-to-cart-btn')
-  if (addToCartBtn) {
-    addToCartBtn.addEventListener('click', () => {
-      const cart = JSON.parse(localStorage.getItem('pi_cart') || '[]')
-
-      const newItem = {
-        id: product._id,
-        title: product.title,
-        price: Number(currentPrice),
-        image: mainImageUrl,
-        size: selectedSize,
-        quantity: 1
-      }
-
-      // Check if exact item + size exists
-      const existingIdx = cart.findIndex((i) => i.id === newItem.id && i.size === newItem.size)
-      if (existingIdx > -1) {
-        cart[existingIdx].quantity += 1
+      selColor = null
+      const inStock = colorList.filter((c) => colorInStockForSize(c, selSize))
+      if (inStock.length === 1) {
+        const only = inStock[0]
+        const btn = Array.from(colorGroup.querySelectorAll('.color-btn')).find((b) => b.dataset.color === only)
+        selectColor(only, btn)
       } else {
-        cart.push(newItem)
+        update()
+      }
+    }
+
+    function selectSize(size, btn) {
+      selSize = size
+      setActiveSize(btn)
+      if (hasColors) buildColors()
+      else update()
+    }
+
+    if (hasSizes) {
+      sizeBtns.forEach((b) => {
+        const sz = b.getAttribute('data-size')
+        if (!sizeInStock(sz)) { b.disabled = true; b.classList.add('opacity-40', 'line-through', 'cursor-not-allowed') }
+        else b.addEventListener('click', () => selectSize(sz, b))
+      })
+      if (selSize !== null) {
+        const btn = sizeBtns.find((b) => b.getAttribute('data-size') === selSize)
+        selectSize(selSize, btn)
+      } else {
+        update()
+      }
+    } else if (hasColors) {
+      buildColors()
+    } else {
+      update()
+    }
+
+    addBtn?.addEventListener('click', () => {
+      if (addBtn.disabled) return
+      let cart = []
+      try { cart = JSON.parse(localStorage.getItem('pi_cart') || '[]') } catch {}
+      const itemSize = hasSizes ? selSize : ''
+      const itemColor = hasColors ? selColor : ''
+      const newItem = { id: productMeta._id, title: productMeta.title, price: comboPrice, image: mainImageUrl, size: itemSize, color: itemColor, quantity: 1 }
+      const existingIdx = cart.findIndex((i) => i.id === newItem.id && (i.size || '') === itemSize && (i.color || '') === itemColor)
+      if (existingIdx > -1) cart[existingIdx].quantity += 1
+      else cart.push(newItem)
+      localStorage.setItem('pi_cart', JSON.stringify(cart))
+      window.dispatchEvent(new CustomEvent('open-cart'))
+    })
+  } else {
+    // ---------- MADE-TO-ORDER: estimate + request ----------
+    const selects = Array.from(document.querySelectorAll('.custom-opt'))
+    const qtyInput = document.getElementById('custom-qty')
+    const estimateEl = document.getElementById('custom-estimate')
+
+    const fmt = (n) => '€' + (Number.isInteger(n) ? String(n) : n.toFixed(2))
+
+    function computeEstimate() {
+      let perItem = Number(basePrice)
+      selects.forEach((s) => {
+        const opt = s.selectedOptions && s.selectedOptions[0]
+        perItem += Number(opt && opt.dataset.delta) || 0
+      })
+      let qty = parseInt(qtyInput && qtyInput.value, 10)
+      if (!Number.isFinite(qty) || qty < 1) qty = 1
+      return perItem * qty
+    }
+
+    function refreshEstimate() {
+      if (estimateEl) estimateEl.textContent = fmt(computeEstimate())
+    }
+
+    selects.forEach((s) => s.addEventListener('change', refreshEstimate))
+    qtyInput?.addEventListener('input', refreshEstimate)
+
+    // Colour swatches drive their group's select
+    document.querySelectorAll('.swatch-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const gi = btn.getAttribute('data-group')
+        const val = btn.getAttribute('data-value')
+        const sel = document.querySelector(`.custom-opt[data-group-index="${gi}"]`)
+        if (sel) {
+          sel.value = val
+          sel.dispatchEvent(new Event('change'))
+        }
+        document.querySelectorAll(`.swatch-btn[data-group="${gi}"]`).forEach((b) => {
+          b.classList.remove('border-brand-red', 'ring-2')
+        })
+        btn.classList.add('border-brand-red', 'ring-2')
+      })
+    })
+
+    refreshEstimate()
+
+    // Submit request
+    const form = document.getElementById('custom-request-form')
+    const msgEl = document.getElementById('custom-form-msg')
+    const submitBtn = document.getElementById('custom-submit-btn')
+    const successEl = document.getElementById('custom-success')
+
+    function showMsg(text, ok) {
+      if (!msgEl) return
+      msgEl.textContent = text
+      msgEl.classList.remove('hidden')
+      msgEl.classList.toggle('text-brand-red', !ok)
+      msgEl.classList.toggle('text-green-400', !!ok)
+    }
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      msgEl?.classList.add('hidden')
+
+      // Validate required option groups
+      for (const s of selects) {
+        if (s.getAttribute('data-required') === 'true' && !s.value) {
+          showMsg(`Please choose: ${s.getAttribute('data-label')}`, false)
+          return
+        }
       }
 
-      // Persist to local storage
-      localStorage.setItem('pi_cart', JSON.stringify(cart))
+      const fd = new FormData(form)
+      const options = selects
+        .filter((s) => s.value)
+        .map((s) => {
+          const opt = s.selectedOptions[0]
+          return {
+            label: s.getAttribute('data-label'),
+            value: s.value,
+            priceDelta: Number(opt && opt.dataset.delta) || 0,
+          }
+        })
 
-      // Trigger Cart Drawer slide-over
-      window.dispatchEvent(new CustomEvent('open-cart'))
+      const payload = {
+        productTitle: productMeta.title,
+        productSlug: productMeta.slug,
+        name: fd.get('name'),
+        email: fd.get('email'),
+        phone: fd.get('phone'),
+        message: fd.get('message'),
+        company: fd.get('company'), // honeypot
+        options,
+        estimatedTotal: computeEstimate(),
+      }
+
+      submitBtn.disabled = true
+      const original = submitBtn.textContent
+      submitBtn.textContent = 'SENDING…'
+
+      try {
+        const res = await fetch('/api/custom-request', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Could not send your request.')
+        form.classList.add('hidden')
+        successEl?.classList.remove('hidden')
+      } catch (err) {
+        showMsg(err && err.message ? err.message : 'Could not send your request.', false)
+        submitBtn.disabled = false
+        submitBtn.textContent = original
+      }
+    })
+  }
+</script>
+
+<style>
+  .share-btn {
+    width: 2.5rem; height: 2.5rem;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--color-brand-border);
+    color: #fff; transition: color .15s, border-color .15s;
+  }
+  .share-btn:hover { color: var(--color-brand-red); border-color: var(--color-brand-red); }
+</style>
+
+<script>
+  const shareBox = document.querySelector('[data-share-container]')
+  if (shareBox) {
+    const shareTitle = shareBox.getAttribute('data-title') || document.title
+    const shareImage = shareBox.getAttribute('data-image') || ''
+    const feedback = document.getElementById('share-feedback')
+
+    const pageUrl = () => window.location.href
+    const flash = (msg: string) => {
+      if (!feedback) return
+      feedback.textContent = msg
+      feedback.classList.remove('hidden')
+      window.setTimeout(() => feedback.classList.add('hidden'), 2500)
+    }
+    const copyLink = async (msg: string) => {
+      try {
+        await navigator.clipboard.writeText(pageUrl())
+        flash(msg)
+      } catch {
+        flash('Copy failed')
+      }
+    }
+
+    shareBox.querySelectorAll('[data-share]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const type = btn.getAttribute('data-share')
+        const u = encodeURIComponent(pageUrl())
+        const t = encodeURIComponent(shareTitle)
+
+        if (type === 'facebook') {
+          window.open(`https://www.facebook.com/sharer/sharer.php?u=${u}`, '_blank', 'noopener,noreferrer,width=640,height=640')
+        } else if (type === 'x') {
+          window.open(`https://twitter.com/intent/tweet?url=${u}&text=${t}`, '_blank', 'noopener,noreferrer,width=640,height=640')
+        } else if (type === 'instagram') {
+          // Instagram has no web link-share URL. Use the native share sheet
+          // (Instagram appears there on mobile); otherwise copy the link.
+          if (navigator.share) {
+            try { await navigator.share({ title: shareTitle, url: pageUrl() }) } catch {}
+          } else {
+            await copyLink('Link copied — paste into Instagram')
+          }
+        } else if (type === 'pinterest') {
+          const media = shareImage ? `&media=${encodeURIComponent(shareImage)}` : ''
+          window.open(`https://pinterest.com/pin/create/button/?url=${u}${media}&description=${t}`, '_blank', 'noopener,noreferrer,width=760,height=640')
+        } else if (type === 'whatsapp') {
+          window.open(`https://wa.me/?text=${encodeURIComponent(shareTitle + ' ' + pageUrl())}`, '_blank', 'noopener,noreferrer')
+        } else if (type === 'email') {
+          window.location.href = `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(shareTitle + '\n\n' + pageUrl())}`
+        } else if (type === 'copy') {
+          await copyLink('Link copied!')
+        }
+      })
     })
   }
 </script>

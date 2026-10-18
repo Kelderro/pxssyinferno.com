@@ -5,12 +5,14 @@ import CartDrawer from '../components/CartDrawer.astro'
 interface Props {
   title?: string;
   description?: string;
+  image?: string;
 }
 
 const { 
   title = "Pussy Inferno | Hand-Painted Wearable Art", 
   description = "Unique, hand-painted apparel drops and custom statement pieces." 
 } = Astro.props;
+const ogImage = Astro.props.image;
 ---
 
 <!DOCTYPE html>
@@ -20,6 +22,14 @@ const {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+    <meta name="twitter:card" content={ogImage ? "summary_large_image" : "summary"} />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    {ogImage && <meta name="twitter:image" content={ogImage} />}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
@@ -41,7 +51,7 @@ const {
         </a>
 
         <nav class="hidden md:flex items-center space-x-8 text-sm font-bold tracking-wider uppercase">
-          <a href="/" class="hover:text-brand-red transition">Shop</a>
+          <a href="/shop" class="hover:text-brand-red transition">Shop</a>
           <a href="/about" class="hover:text-brand-red transition">About</a>
           <a href="/faq" class="hover:text-brand-red transition">FAQ</a>
           <a href="/terms" class="hover:text-brand-red transition">Terms</a>
@@ -77,7 +87,7 @@ const {
         <div>
           <h3 class="text-xs font-black uppercase tracking-widest text-neutral-400 mb-4">Navigation</h3>
           <ul class="space-y-2 text-sm font-semibold">
-            <li><a href="/" class="hover:text-brand-red transition">Shop Collection</a></li>
+            <li><a href="/shop" class="hover:text-brand-red transition">Shop Collection</a></li>
             <li><a href="/about" class="hover:text-brand-red transition">Our Story</a></li>
             <li><a href="/faq" class="hover:text-brand-red transition">Care & FAQs</a></li>
           </ul>

@@ -1,112 +1,136 @@
 ---
 import Layout from '../layouts/Layout.astro'
 import { sanityClient, urlFor } from '../lib/sanity'
+import {
+  PRODUCT_FIELDS,
+  priceFrom,
+  variantPriceRange,
+  isOnSale,
+  isSoldOut,
+  isCustom,
+  productSizes,
+  formatEUR,
+  type Product,
+} from '../lib/catalog'
 
-// Fetch all active products ordered by newest
-const products = await sanityClient.fetch(`
+const products: Product[] = await sanityClient.fetch(`
   *[_type == "product"] | order(_createdAt desc) {
-    _id,
-    title,
-    slug,
-    price,
-    isOnSale,
-    salePrice,
-    sizes,
-    category,
-    isSoldOut,
-    "mainImage": images[0],
-    "hoverImage": images[1]
+    ${PRODUCT_FIELDS}
   }
 `)
 
-// Extract unique categories dynamically for filter tabs
-const categories = ['All', ...new Set(products.map((p: any) => p.category).filter(Boolean))]
+const categories = ['All', ...new Set(products.map((p) => p.category).filter(Boolean))]
+
+// Price-filter bounds from the actual catalogue
+const prices = products.map((p) => priceFrom(p)).filter((n) => Number.isFinite(n))
+const priceMin = 0
+const priceMax = Math.max(Math.ceil(Math.max(0, ...prices)), 1)
+const priceStep = 1
 ---
 
 <Layout title="Shop All Hand-Painted Apparel | Pussy Inferno">
   <section class="max-w-7xl mx-auto px-6 py-12">
-    
-    <!-- Page Header & Title -->
+
+    <!-- Page Header -->
     <div class="mb-10 pb-6 border-b border-brand-border flex flex-col md:flex-row md:items-end justify-between gap-6">
       <div>
-        <span class="text-brand-red text-xs font-black tracking-[0.3em] uppercase block mb-2">
-          Full Catalog
-        </span>
-        <h1 class="text-5xl md:text-7xl font-display tracking-wider uppercase text-white">
-          THE VAULT
-        </h1>
+        <span class="text-brand-red text-xs font-black tracking-[0.3em] uppercase block mb-2">Full Catalog</span>
+        <h1 class="text-5xl md:text-7xl font-display tracking-wider uppercase text-white">THE VAULT</h1>
       </div>
       <p class="text-brand-muted text-sm max-w-sm">
         Every piece is custom hand-painted and sealed for durability. Limited quantities per style.
       </p>
     </div>
 
-    <!-- Filter & Sort Bar -->
-    <div class="flex flex-wrap items-center justify-between gap-4 mb-10 pb-4 border-b border-brand-border/50 text-xs font-bold uppercase tracking-wider">
-      
-      <!-- Category Tabs -->
-      <div class="flex flex-wrap gap-2">
-        {categories.map((cat: string) => (
-          <button 
-            class="px-4 py-2 border border-brand-border hover:border-brand-red bg-brand-card transition text-white focus:bg-brand-red focus:text-black focus:border-brand-red"
-          >
-            {cat}
-          </button>
-        ))}
+    <!-- Filters -->
+    <div class="mb-10 pb-6 border-b border-brand-border/50 space-y-6">
+      <!-- Category + Sort -->
+      <div class="flex flex-wrap items-center justify-between gap-4 text-xs font-bold uppercase tracking-wider">
+        <div class="flex flex-wrap gap-2" id="category-tabs">
+          {categories.map((cat, idx) => (
+            <button
+              class:list={[
+                'cat-tab px-4 py-2 border transition',
+                idx === 0
+                  ? 'border-brand-red bg-brand-red text-black'
+                  : 'border-brand-border bg-brand-card text-white hover:border-brand-red',
+              ]}
+              data-category={cat}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+        <label class="flex items-center gap-2 text-brand-muted">
+          <span>Sort</span>
+          <select id="sort-select" class="bg-brand-card border border-brand-border text-white px-3 py-2 focus:outline-none focus:border-brand-red uppercase tracking-wider">
+            <option value="newest">Newest</option>
+            <option value="price-asc">Price: Low → High</option>
+            <option value="price-desc">Price: High → Low</option>
+          </select>
+        </label>
       </div>
 
-      <!-- Item Counter -->
-      <div class="text-brand-muted">
-        Showing <span class="text-white font-mono">{products.length}</span> Unique Pieces
+      <!-- Price range -->
+      <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+        <span class="text-xs font-bold uppercase tracking-wider text-white">Price</span>
+        <div class="price-range relative flex-1 max-w-md h-8">
+          <div class="range-track"></div>
+          <div class="range-fill" id="range-fill"></div>
+          <input type="range" id="price-min" min={priceMin} max={priceMax} step={priceStep} value={priceMin} aria-label="Minimum price" />
+          <input type="range" id="price-max" min={priceMin} max={priceMax} step={priceStep} value={priceMax} aria-label="Maximum price" />
+        </div>
+        <span id="price-readout" class="text-xs font-mono text-white whitespace-nowrap">{formatEUR(priceMin)} – {formatEUR(priceMax)}</span>
+      </div>
+
+      <div class="text-xs text-brand-muted uppercase tracking-wider">
+        Showing <span id="item-count" class="text-white font-mono">{products.length}</span> Pieces
       </div>
     </div>
 
     <!-- Product Grid -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-      {products.map((item: any) => {
-        const displayPrice = item.isOnSale && item.salePrice ? item.salePrice : item.price
-        
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8" id="product-grid">
+      {products.map((item, idx) => {
+        const range = variantPriceRange(item)
+        const onSale = isOnSale(item)
+        const soldOut = isSoldOut(item)
+        const custom = isCustom(item)
+        const sizes = productSizes(item)
+
         return (
-          <a 
-            href={`/products/${item.slug.current}`} 
-            class="group bg-brand-card border border-brand-border overflow-hidden block transition duration-300 hover:border-brand-red relative"
+          <a
+            href={`/products/${item.slug?.current}`}
+            class="product-card group bg-brand-card border border-brand-border overflow-hidden block transition duration-300 hover:border-brand-red relative"
+            data-category={item.category || ''}
+            data-price={range.min}
+            data-order={idx}
           >
-            <!-- Status Badges -->
             <div class="absolute top-3 left-3 z-20 flex flex-col gap-1.5 items-start">
-              {item.isSoldOut ? (
-                <span class="bg-neutral-800 text-neutral-400 text-[10px] font-black uppercase px-2 py-1 tracking-widest border border-neutral-700">
-                  SOLD OUT
-                </span>
-              ) : item.isOnSale ? (
-                <span class="bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">
-                  SALE
-                </span>
+              {soldOut ? (
+                <span class="bg-neutral-800 text-neutral-400 text-[10px] font-black uppercase px-2 py-1 tracking-widest border border-neutral-700">SOLD OUT</span>
+              ) : custom ? (
+                <span class="bg-white text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">MADE TO ORDER</span>
+              ) : onSale ? (
+                <span class="bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">SALE</span>
               ) : null}
             </div>
 
-            <!-- Image Container with Hover Preview Toggle -->
             <div class="relative aspect-square overflow-hidden bg-black">
               {item.mainImage ? (
-                <img 
-                  src={urlFor(item.mainImage).width(700).height(700).format('webp').url()} 
-                  alt={item.title} 
+                <img
+                  src={urlFor(item.mainImage).width(700).height(700).format('webp').url()}
+                  alt={item.title}
                   loading="lazy"
                   class={`w-full h-full object-cover transition-all duration-500 ${
-                    item.hoverImage 
-                      ? 'group-hover:opacity-0 scale-100' 
-                      : 'group-hover:scale-105'
+                    item.hoverImage ? 'group-hover:opacity-0 scale-100' : 'group-hover:scale-105'
                   }`}
                 />
               ) : (
-                <div class="w-full h-full flex items-center justify-center text-brand-muted text-xs uppercase tracking-widest">
-                  No Image
-                </div>
+                <div class="w-full h-full flex items-center justify-center text-brand-muted text-xs uppercase tracking-widest">No Image</div>
               )}
-
-              {/* Secondary Hover Image (if exists) */}
               {item.hoverImage && (
-                <img 
-                  src={urlFor(item.hoverImage).width(700).height(700).format('webp').url()} 
+                <img
+                  src={urlFor(item.hoverImage).width(700).height(700).format('webp').url()}
                   alt={`${item.title} preview`}
                   loading="lazy"
                   class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
@@ -114,29 +138,20 @@ const categories = ['All', ...new Set(products.map((p: any) => p.category).filte
               )}
             </div>
 
-            <!-- Product Details Footer -->
             <div class="p-5 space-y-3 bg-brand-card">
               <div class="flex justify-between items-start gap-2">
-                <h2 class="text-lg font-bold uppercase tracking-wide group-hover:text-brand-red transition">
-                  {item.title}
-                </h2>
-                
-                {/* Price Display */}
+                <h2 class="text-lg font-bold uppercase tracking-wide group-hover:text-brand-red transition">{item.title}</h2>
                 <div class="text-base font-extrabold flex items-center gap-2 whitespace-nowrap">
-                  <span class={item.isSoldOut ? 'text-brand-muted line-through' : 'text-white'}>
-                    ${displayPrice}
+                  <span class={soldOut ? 'text-brand-muted line-through' : 'text-white'}>
+                    {custom || range.varies ? `From ${formatEUR(range.min)}` : formatEUR(range.min)}
                   </span>
-                  {item.isOnSale && !item.isSoldOut && (
-                    <span class="line-through text-brand-muted text-xs">${item.price}</span>
-                  )}
+                  {onSale && !soldOut && !range.varies && <span class="line-through text-brand-muted text-xs">{formatEUR(item.price)}</span>}
                 </div>
               </div>
-
-              <!-- Sizes list -->
-              {item.sizes && item.sizes.length > 0 && (
+              {sizes.length > 0 && (
                 <div class="flex items-center justify-between pt-2 border-t border-brand-border/40 text-[11px]">
                   <span class="text-brand-muted uppercase font-mono">Available Sizes:</span>
-                  <span class="text-white font-mono uppercase font-bold">{item.sizes.join(' · ')}</span>
+                  <span class="text-white font-mono uppercase font-bold">{sizes.join(' · ')}</span>
                 </div>
               )}
             </div>
@@ -144,5 +159,163 @@ const categories = ['All', ...new Set(products.map((p: any) => p.category).filte
         )
       })}
     </div>
+
+    <!-- Empty state -->
+    <p id="no-results" class="hidden text-center py-20 text-brand-muted text-xs uppercase tracking-widest">
+      No pieces match these filters.
+    </p>
   </section>
 </Layout>
+
+<style>
+  .price-range input[type='range'] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2rem;
+    margin: 0;
+    background: transparent;
+    pointer-events: none;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .price-range input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: auto;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: var(--color-brand-red);
+    border: 2px solid #000;
+    cursor: pointer;
+  }
+  .price-range input[type='range']::-moz-range-thumb {
+    pointer-events: auto;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: var(--color-brand-red);
+    border: 2px solid #000;
+    cursor: pointer;
+  }
+  #price-min { z-index: 3; }
+  #price-max { z-index: 4; }
+  .range-track {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 100%;
+    height: 4px;
+    background: var(--color-brand-border);
+  }
+  .range-fill {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 4px;
+    background: var(--color-brand-red);
+  }
+</style>
+
+<script>
+  const grid = document.getElementById('product-grid')
+  const cards = Array.from(document.querySelectorAll<HTMLElement>('.product-card'))
+  const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.cat-tab'))
+  const sortSel = document.getElementById('sort-select') as HTMLSelectElement | null
+  const minInput = document.getElementById('price-min') as HTMLInputElement | null
+  const maxInput = document.getElementById('price-max') as HTMLInputElement | null
+  const fill = document.getElementById('range-fill')
+  const readout = document.getElementById('price-readout')
+  const countEl = document.getElementById('item-count')
+  const noResults = document.getElementById('no-results')
+
+  const activeClasses = ['border-brand-red', 'bg-brand-red', 'text-black']
+  const idleClasses = ['border-brand-border', 'bg-brand-card', 'text-white', 'hover:border-brand-red']
+
+  const PMAX = maxInput ? Number(maxInput.max) : 0
+  let activeCat = 'All'
+
+  const eur = (n: number) => '€' + (Number.isInteger(n) ? String(n) : n.toFixed(2))
+  const priceOf = (c: HTMLElement) => Number(c.dataset.price) || 0
+  const orderOf = (c: HTMLElement) => Number(c.dataset.order) || 0
+
+  function updateRangeUI() {
+    if (!minInput || !maxInput || !fill || !readout) return
+    let lo = Number(minInput.value)
+    let hi = Number(maxInput.value)
+    if (lo > hi) { [lo, hi] = [hi, lo] } // guard; visual only
+    const leftPct = PMAX ? (lo / PMAX) * 100 : 0
+    const rightPct = PMAX ? (hi / PMAX) * 100 : 100
+    fill.style.left = leftPct + '%'
+    fill.style.width = Math.max(0, rightPct - leftPct) + '%'
+    readout.textContent = `${eur(lo)} – ${eur(hi)}`
+  }
+
+  function apply() {
+    // sort (reorders the DOM)
+    if (grid && sortSel) {
+      const mode = sortSel.value
+      const sorted = [...cards]
+      if (mode === 'price-asc') sorted.sort((a, b) => priceOf(a) - priceOf(b))
+      else if (mode === 'price-desc') sorted.sort((a, b) => priceOf(b) - priceOf(a))
+      else sorted.sort((a, b) => orderOf(a) - orderOf(b))
+      sorted.forEach((c) => grid.appendChild(c))
+    }
+
+    let lo = minInput ? Number(minInput.value) : 0
+    let hi = maxInput ? Number(maxInput.value) : PMAX
+    if (lo > hi) { const t = lo; lo = hi; hi = t }
+    // Handle at an extreme = no bound on that side, so the cheapest/most
+    // expensive pieces are always included regardless of step rounding.
+    const low = minInput && lo <= Number(minInput.min) ? -Infinity : lo
+    const high = maxInput && hi >= Number(maxInput.max) ? Infinity : hi
+
+    let visible = 0
+    cards.forEach((c) => {
+      const p = priceOf(c)
+      const catOk = activeCat === 'All' || c.dataset.category === activeCat
+      const priceOk = p >= low && p <= high
+      const show = catOk && priceOk
+      c.style.display = show ? '' : 'none'
+      if (show) visible++
+    })
+    if (countEl) countEl.textContent = String(visible)
+    if (noResults) noResults.classList.toggle('hidden', visible !== 0)
+  }
+
+  // Category tabs
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      activeCat = tab.dataset.category || 'All'
+      tabs.forEach((t) => {
+        activeClasses.forEach((c) => t.classList.remove(c))
+        idleClasses.forEach((c) => t.classList.add(c))
+      })
+      idleClasses.forEach((c) => tab.classList.remove(c))
+      activeClasses.forEach((c) => tab.classList.add(c))
+      apply()
+    })
+  })
+
+  // Sort
+  sortSel?.addEventListener('change', apply)
+
+  // Price range
+  minInput?.addEventListener('input', () => {
+    if (minInput && maxInput && Number(minInput.value) > Number(maxInput.value)) {
+      minInput.value = maxInput.value
+    }
+    updateRangeUI(); apply()
+  })
+  maxInput?.addEventListener('input', () => {
+    if (minInput && maxInput && Number(maxInput.value) < Number(minInput.value)) {
+      maxInput.value = minInput.value
+    }
+    updateRangeUI(); apply()
+  })
+
+  updateRangeUI()
+  apply()
+</script>

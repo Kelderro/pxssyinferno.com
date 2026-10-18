@@ -1,17 +1,20 @@
 ---
 import Layout from '../layouts/Layout.astro'
 import { sanityClient, urlFor } from '../lib/sanity'
+import {
+  PRODUCT_FIELDS,
+  variantPriceRange,
+  isOnSale,
+  isSoldOut,
+  isCustom,
+  productSizes,
+  formatEUR,
+  type Product,
+} from '../lib/catalog'
 
-const products = await sanityClient.fetch(`
+const products: Product[] = await sanityClient.fetch(`
   *[_type == "product"] | order(_createdAt desc) {
-    _id,
-    title,
-    slug,
-    price,
-    isOnSale,
-    salePrice,
-    sizes,
-    "mainImage": images[0]
+    ${PRODUCT_FIELDS}
   }
 `)
 ---
@@ -40,17 +43,31 @@ const products = await sanityClient.fetch(`
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-      {products.map((item: any) => {
-        const displayPrice = item.isOnSale && item.salePrice ? item.salePrice : item.price
+      {products.map((item) => {
+        const range = variantPriceRange(item)
+        const onSale = isOnSale(item)
+        const soldOut = isSoldOut(item)
+        const custom = isCustom(item)
+        const sizes = productSizes(item)
         return (
-          <a href={`/products/${item.slug.current}`} class="group bg-brand-card border border-brand-border overflow-hidden block transition hover:border-brand-red">
+          <a href={`/products/${item.slug?.current}`} class="group bg-brand-card border border-brand-border overflow-hidden block transition hover:border-brand-red">
             <!-- Image Frame -->
             <div class="relative aspect-square overflow-hidden bg-black">
-              {item.isOnSale && (
-                <span class="absolute top-3 left-3 z-10 bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">
-                  SALE
-                </span>
-              )}
+              <div class="absolute top-3 left-3 z-10 flex flex-col gap-1.5 items-start">
+                {soldOut ? (
+                  <span class="bg-neutral-800 text-neutral-400 text-[10px] font-black uppercase px-2 py-1 tracking-widest border border-neutral-700">
+                    SOLD OUT
+                  </span>
+                ) : custom ? (
+                  <span class="bg-white text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">
+                    MADE TO ORDER
+                  </span>
+                ) : onSale ? (
+                  <span class="bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">
+                    SALE
+                  </span>
+                ) : null}
+              </div>
               {item.mainImage ? (
                 <img 
                   src={urlFor(item.mainImage).width(600).height(600).format('webp').url()} 
@@ -73,13 +90,15 @@ const products = await sanityClient.fetch(`
               
               <div class="flex items-center justify-between">
                 <div class="text-base font-extrabold flex items-center gap-2">
-                  <span class="text-white">${displayPrice}</span>
-                  {item.isOnSale && <span class="line-through text-brand-muted text-xs">${item.price}</span>}
+                  <span class={soldOut ? 'text-brand-muted line-through' : 'text-white'}>
+                    {custom || range.varies ? `From ${formatEUR(range.min)}` : formatEUR(range.min)}
+                  </span>
+                  {onSale && !soldOut && !range.varies && <span class="line-through text-brand-muted text-xs">{formatEUR(item.price)}</span>}
                 </div>
 
-                {item.sizes && item.sizes.length > 0 && (
+                {sizes.length > 0 && (
                   <div class="text-[10px] text-brand-muted font-mono uppercase">
-                    {item.sizes.join(' · ')}
+                    {sizes.join(' · ')}
                   </div>
                 )}
               </div>

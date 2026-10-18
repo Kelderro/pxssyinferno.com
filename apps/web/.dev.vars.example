@@ -1,0 +1,20 @@
+# Copy this file to `.dev.vars` (gitignored) for local testing with:
+#   npx wrangler pages dev dist
+# In production these are set in the Cloudflare Pages dashboard
+# (Settings > Environment variables), with the Stripe/Resend keys marked as "Secret".
+
+# --- Stripe (test mode) ---
+STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxxxxxx
+# STRIPE_CURRENCY=eur
+
+# --- Resend (contact + custom-request emails) ---
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxx
+CONTACT_TO_EMAIL=info@kelderro.nl
+CONTACT_FROM_EMAIL=shop@pxssyinferno.com
+
+# --- Optional overrides (defaults shown) ---
+# SITE_URL=https://pxssyinferno.com
+# ALLOWED_SHIPPING_COUNTRIES=NL,BE,DE,FR,GB,US,CA,AU
+# SANITY_PROJECT_ID=whp8gyuq
+# SANITY_DATASET=production
+# SANITY_API_VERSION=2026-03-01
