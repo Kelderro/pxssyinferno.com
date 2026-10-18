@@ -2,6 +2,7 @@
 import Layout from '../layouts/Layout.astro'
 import { sanityClient, urlFor } from '../lib/sanity'
 import { PortableText } from '@portabletext/astro'
+import SanityImage from '../components/SanityImage.astro'
 
 const about = await sanityClient.fetch(`
   *[_type == "about" && _id == "aboutPage"][0] { title, heroImage, content }
@@ -31,7 +32,7 @@ const heroUrl = about?.heroImage
 
     {about?.content ? (
       <div class="portable-text">
-        <PortableText value={about.content} />
+        <PortableText value={about.content} components={{ type: { image: SanityImage } }} />
       </div>
     ) : (
       <div class="text-center py-12 text-brand-muted text-xs uppercase tracking-widest border border-brand-border bg-brand-card">

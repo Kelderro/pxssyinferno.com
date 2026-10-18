@@ -32,15 +32,13 @@ const ogImage = Astro.props.image;
     {ogImage && <meta name="twitter:image" content={ogImage} />}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=Bungee&display=swap" rel="stylesheet">
   </head>
   <body class="min-h-screen flex flex-col justify-between selection:bg-brand-red selection:text-black">
     
-    <!-- Top Announcement Marquee -->
-    <div class="bg-brand-red text-black text-xs font-black tracking-widest uppercase py-1.5 px-4 overflow-hidden whitespace-nowrap">
-      <div class="animate-marquee inline-block">
-        🔥 ALL PIECES 1-OF-1 OR LIMITED HAND-PAINTED EDITIONS • FREE SHIPPING OVER $200 🔥
-      </div>
+    <!-- Top Bar -->
+    <div class="bg-brand-red text-black text-xs font-black tracking-widest uppercase py-1.5 px-4 text-center">
+       🔥 HAND-PAINTED. NO COPIES. NO COMPROMISE. 🔥
     </div>
 
     <!-- Header / Navbar -->
@@ -52,9 +50,8 @@ const ogImage = Astro.props.image;
 
         <nav class="hidden md:flex items-center space-x-8 text-sm font-bold tracking-wider uppercase">
           <a href="/shop" class="hover:text-brand-red transition">Shop</a>
-          <a href="/about" class="hover:text-brand-red transition">About</a>
           <a href="/faq" class="hover:text-brand-red transition">FAQ</a>
-          <a href="/terms" class="hover:text-brand-red transition">Terms</a>
+          <a href="/about" class="hover:text-brand-red transition">About</a>
           <a href="/contact" class="hover:text-brand-red transition">Contact</a>
         </nav>
 

@@ -1,0 +1,22 @@
+---
+import type { TypeProps } from '@portabletext/astro/types'
+import { urlFor } from '../lib/sanity'
+
+export type Props = TypeProps
+
+const { node } = Astro.props
+const src = urlFor(node).width(1200).format('webp').url()
+const alt: string = node.alt || ''
+---
+
+<figure class="my-8">
+  <img
+    src={src}
+    alt={alt}
+    class="w-full border border-brand-border"
+    loading="lazy"
+  />
+  {alt && (
+    <figcaption class="mt-2 text-xs text-brand-muted text-center">{alt}</figcaption>
+  )}
+</figure>
