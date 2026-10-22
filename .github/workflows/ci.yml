@@ -88,6 +88,14 @@ jobs:
           PUBLIC_SANITY_DATASET: ${{ secrets.PUBLIC_SANITY_DATASET || 'production' }}
           PUBLIC_SANITY_API_VERSION: '2024-01-01'
 
+      - name: Start preview server
+        run: pnpm --filter web preview &
+        env:
+          PLAYWRIGHT_BASE_URL: 'http://localhost:4322'
+
+      - name: Wait for preview server to be ready
+        run: npx wait-on http://localhost:4322 --timeout 30000
+
       - name: Run E2E tests
         run: pnpm --filter web test:e2e
         env:
