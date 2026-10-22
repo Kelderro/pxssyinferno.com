@@ -4,6 +4,7 @@ compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "dist"
 
 [vars]
+NODE_VERSION = "24"
 PUBLIC_SANITY_PROJECT_ID = "whp8gyuq"
 PUBLIC_SANITY_DATASET = "production"
 PUBLIC_SANITY_API_VERSION = "2026-03-01"
