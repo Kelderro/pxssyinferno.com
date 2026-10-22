@@ -31,7 +31,7 @@ jobs:
           # Provide dummy env vars so the Sanity client initialises during build
           PUBLIC_SANITY_PROJECT_ID: ${{ secrets.PUBLIC_SANITY_PROJECT_ID || 'dummy' }}
           PUBLIC_SANITY_DATASET: ${{ secrets.PUBLIC_SANITY_DATASET || 'production' }}
-          PUBLIC_SANITY_API_VERSION: '2024-01-01'
+          PUBLIC_SANITY_API_VERSION: '2026-03-01'
 
       - name: Build studio
         run: pnpm --filter studio build
