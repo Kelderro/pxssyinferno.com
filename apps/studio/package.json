@@ -16,15 +16,15 @@
   ],
   "dependencies": {
     "@sanity/vision": "^6.19.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "sanity": "^6.19.0",
     "styled-components": "^6.1.18"
   },
   "devDependencies": {
     "@sanity/eslint-config-studio": "^7",
     "@types/react": "^19.2.14",
-    "eslint": "^10.8.1",
+    "eslint": "^10.13.0",
     "prettier": "^3.5",
     "typescript": "~6.0"
   },
