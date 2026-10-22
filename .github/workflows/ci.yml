@@ -89,9 +89,7 @@ jobs:
           PUBLIC_SANITY_API_VERSION: '2024-01-01'
 
       - name: Start preview server
-        run: pnpm --filter web preview &
-        env:
-          PLAYWRIGHT_BASE_URL: 'http://localhost:4322'
+        run: pnpm --filter web preview --port 4322 &
 
       - name: Wait for preview server to be ready
         run: npx wait-on http://localhost:4322 --timeout 30000
