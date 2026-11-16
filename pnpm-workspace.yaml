@@ -25,3 +25,9 @@ minimumReleaseAgeExclude:
   - motion-utils@14.1.1
   - motion@14.1.1
   - sanity@6.19.0
+
+# Security overrides for transitive dependencies whose parents pin vulnerable
+# versions. Remove an entry once the parent ships the fix itself.
+overrides:
+  # @vercel/frameworks (via @sanity/cli) pins js-yaml@3.13.1 — see #37
+  '@vercel/frameworks>js-yaml': ^3.15.2
