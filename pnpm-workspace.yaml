@@ -25,3 +25,10 @@ minimumReleaseAgeExclude:
   - motion-utils@14.1.1
   - motion@14.1.1
   - sanity@6.19.0
+
+# Security overrides for transitive dependencies whose parents pin vulnerable
+# versions. Remove an entry once the parent ships the fix itself.
+overrides:
+  # @oclif/core 4 and eslint-plugin-jsx-a11y-x still ask for minimatch@^10;
+  # the ReDoS fix only exists on 11.x — see #39
+  'minimatch@>=7.0.0 <11.0.1': ^11.0.5
