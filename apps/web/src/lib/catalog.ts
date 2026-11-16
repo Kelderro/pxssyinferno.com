@@ -181,10 +181,20 @@ export function priceFrom(p: Product, currency: Currency = DEFAULT_CURRENCY, now
 /**
  * Whether the product can be shown and sold in this currency: the product (and
  * every variant) resolves to a positive price. Made-to-order pieces need a
- * starting price in that currency.
+ * starting price in that currency, and in £ every option that costs extra in €
+ * needs a £ amount too (otherwise the £ estimate would be too low).
  */
 export function hasPriceIn(p: Product, currency: Currency, now: number = Date.now()): boolean {
-  if (isCustom(p)) return basePrice(p, currency) > 0
+  if (isCustom(p)) {
+    if (basePrice(p, currency) <= 0) return false
+    if (currency === 'eur') return true
+    const groups = Array.isArray(p?.customOptions) ? p.customOptions : []
+    return groups.every((g) =>
+      (Array.isArray(g?.choices) ? g.choices : []).every(
+        (c) => !(choiceDelta(c, 'eur') > 0) || c?.priceDeltaGbp != null
+      )
+    )
+  }
   return variantPriceRange(p, currency, now).min > 0
 }
 

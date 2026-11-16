@@ -311,7 +311,17 @@ export const product = defineType({
                       type: 'number',
                       description:
                         'Amount this choice adds to the £ starting price. Use 0 for no change. ' +
-                        'If left empty while the € amount is set, the £ estimate falls back to €.',
+                        'Required in £ whenever the € amount is set: until it is filled in, this ' +
+                        'made-to-order piece shows "Not available in £" and cannot be requested in £.',
+                      validation: (Rule) =>
+                        Rule.custom((priceDeltaGbp, context) => {
+                          const choice = context.parent as any
+                          const doc = context.document as any
+                          if (doc?.priceGbp && Number(choice?.priceDelta) > 0 && priceDeltaGbp == null) {
+                            return 'Set a £ amount, or this piece cannot be requested in £.'
+                          }
+                          return true
+                        }).warning(),
                     },
                     {
                       name: 'swatchColor',

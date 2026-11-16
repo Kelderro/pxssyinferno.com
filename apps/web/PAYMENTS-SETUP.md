@@ -70,9 +70,10 @@ currency, each balance pays out to its own account, with no conversion.
 - A product **without a £ price** shows "Not available in £" in £ mode and
   cannot be added to the cart or checked out in £ (the function returns 409).
 - The sale start/end dates apply to both currencies.
-- Made-to-order estimates are shown in £ when the piece has a £ starting price
-  and the chosen options have £ amounts; otherwise in €. The request email says
-  which currency the shopper saw.
+- Made-to-order pieces follow the same rule. In £ mode they need a £ starting
+  price, plus a £ `Added Price` on every option that costs extra in €. Until
+  then they show "Not available in £" and the request form is disabled in £.
+  The request email states the currency the estimate was shown in.
 
 One-off Stripe Dashboard setup:
 

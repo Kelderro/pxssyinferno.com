@@ -34,9 +34,6 @@ const custom = isCustom(product)
         <span class={soldOut ? 'text-brand-muted line-through' : 'text-white'}>
           {custom || range.varies ? `From ${fmt(range.min)}` : fmt(range.min)}
         </span>
-      ) : custom ? (
-        // Made-to-order quotes are made by hand; show the € starting price
-        <span class="text-white">From {formatPrice(basePrice(product, 'eur'), 'eur')}</span>
       ) : (
         <span class="text-brand-muted text-xs font-bold normal-case">Not available in £</span>
       )}

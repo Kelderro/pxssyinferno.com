@@ -18,6 +18,7 @@ import {
   categoryLabel,
   type Product,
   type Variant,
+  type CustomChoice,
 } from '../lib/catalog'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -417,6 +418,39 @@ describe('hasPriceIn', () => {
   it('needs a GBP starting price for made-to-order pieces', () => {
     expect(hasPriceIn(madeToOrderProduct, 'gbp')).toBe(false)
     expect(hasPriceIn({ ...madeToOrderProduct, priceGbp: 170 }, 'gbp')).toBe(true)
+  })
+
+  describe('made-to-order options', () => {
+    const withOptions = (choices: CustomChoice[]): Product => ({
+      ...madeToOrderProduct,
+      priceGbp: 170,
+      customOptions: [{ label: 'Fabric', choices }],
+    })
+
+    it('needs a GBP amount on every option that costs extra in EUR', () => {
+      const p = withOptions([
+        { label: 'Faux', priceDelta: 20, priceDeltaGbp: 18 },
+        { label: 'Real', priceDelta: 80 },
+      ])
+      expect(hasPriceIn(p, 'gbp')).toBe(false)
+      expect(hasPriceIn(p, 'eur')).toBe(true)
+    })
+
+    it('accepts an explicit £0 amount', () => {
+      expect(hasPriceIn(withOptions([{ label: 'Real', priceDelta: 80, priceDeltaGbp: 0 }]), 'gbp')).toBe(true)
+    })
+
+    it('ignores options that cost nothing extra in EUR', () => {
+      expect(hasPriceIn(withOptions([{ label: 'Black', priceDelta: 0 }, { label: 'Red' }]), 'gbp')).toBe(true)
+    })
+
+    it('is available in GBP once every paid option has a GBP amount', () => {
+      const p = withOptions([
+        { label: 'Faux', priceDelta: 20, priceDeltaGbp: 18 },
+        { label: 'Real', priceDelta: 80, priceDeltaGbp: 70 },
+      ])
+      expect(hasPriceIn(p, 'gbp')).toBe(true)
+    })
   })
 })
 

@@ -63,14 +63,10 @@ const pricing = CURRENCIES.map((currency) => {
   return {
     currency,
     available,
-    // Made-to-order piece without a £ price: shown as a normal € price plus a note
-    eurFallback: !available && custom,
     base,
     showSale: available && isOnSale(product, currency) && !soldOut && !custom && !range.varies,
     label: !available
-      ? custom
-        ? `From ${formatPrice(basePrice(product, 'eur'), 'eur')}` // quote is made by hand; estimate stays in €
-        : 'Not available in £'
+      ? 'Not available in £'
       : custom
         ? `From ${fmt(base)}`
         : range.varies
@@ -81,6 +77,8 @@ const pricing = CURRENCIES.map((currency) => {
 // Product price (sale-aware) per currency, used when a variant has no override
 const currentPrice = { eur: effectivePrice(product, 'eur'), gbp: effectivePrice(product, 'gbp') }
 const basePrices = { eur: basePrice(product, 'eur'), gbp: basePrice(product, 'gbp') }
+// Can this piece be bought / requested in each currency?
+const availableIn = { eur: hasPriceIn(product, 'eur'), gbp: hasPriceIn(product, 'gbp') }
 
 // Pre-build image URL for the client-side cart script
 const mainImageUrl =
@@ -212,17 +210,12 @@ const productMeta = {
                 <span
                   data-product-price={pr.currency}
                   class:list={[
-                    soldOut || (!pr.available && !pr.eurFallback) ? 'text-brand-muted' : 'text-white',
-                    !pr.available && !pr.eurFallback && 'text-base font-sans',
+                    soldOut || !pr.available ? 'text-brand-muted' : 'text-white',
+                    !pr.available && 'text-base font-sans',
                   ]}
                 >
                   {pr.label}
                 </span>
-                {pr.eurFallback && (
-                  <span class="text-[10px] font-sans font-bold uppercase tracking-widest text-brand-muted">
-                    No £ price yet · quoted in €
-                  </span>
-                )}
                 {pr.showSale && (
                   <span class="line-through text-brand-muted text-base">{formatPrice(pr.base, pr.currency)}</span>
                 )}
@@ -326,6 +319,9 @@ const productMeta = {
               <input name="company" tabindex="-1" autocomplete="off" class="hidden" aria-hidden="true" />
 
               <p id="custom-form-msg" class="hidden text-xs font-bold uppercase tracking-wider"></p>
+              <p id="custom-unavailable" class="hidden text-xs font-bold uppercase tracking-wider text-brand-red">
+                Not available in £ — switch to € to request
+              </p>
 
               <button
                 type="submit"
@@ -458,7 +454,7 @@ const productMeta = {
 </style>
 
 <!-- Client-side Interactive Logic -->
-<script define:vars={{ custom, basePrices, currentPrice, mainImageUrl, productMeta, variants }}>
+<script define:vars={{ custom, basePrices, availableIn, currentPrice, mainImageUrl, productMeta, variants }}>
   const piCurrency = window.piCurrency
   const CURRENCIES = ['eur', 'gbp']
   const fmt = (n, c) => piCurrency.format(n, c)
@@ -653,20 +649,17 @@ const productMeta = {
     const qtyInput = document.getElementById('custom-qty')
     const estimateEl = document.getElementById('custom-estimate')
 
+    const submitBtn = document.getElementById('custom-submit-btn')
+    const unavailableNote = document.getElementById('custom-unavailable')
+
     const selectedOpts = () => selects.map((s) => s.selectedOptions && s.selectedOptions[0]).filter((o) => o && o.value)
-    const hasGbpDelta = (o) => o.dataset.deltaGbp !== ''
     const delta = (o, c) => Number(c === 'gbp' ? o.dataset.deltaGbp : o.dataset.deltaEur) || 0
-    // £ only when this piece has a £ starting price; options without a £ amount stay in €
-    const labelCurrency = () => (piCurrency.get() === 'gbp' && Number(basePrices.gbp) > 0 ? 'gbp' : 'eur')
+    // Same rule as ready-to-ship: without a full set of £ prices (starting price
+    // and every option that costs extra) the piece cannot be requested in £.
+    const currency = () => piCurrency.get()
+    const available = () => !!availableIn[currency()]
 
-    // The estimate is in £ when the piece has a £ starting price and every chosen
-    // option that costs extra has a £ amount; otherwise it falls back to €.
-    // It is indicative only: the final quote is made by hand.
-    function estimateCurrency() {
-      if (labelCurrency() === 'eur') return 'eur'
-      return selectedOpts().every((o) => !(delta(o, 'eur') > 0) || hasGbpDelta(o)) ? 'gbp' : 'eur'
-    }
-
+    // Indicative only: the final quote is made by hand.
     function computeEstimate(c) {
       let perItem = Number(basePrices[c]) || 0
       selectedOpts().forEach((o) => { perItem += delta(o, c) })
@@ -676,22 +669,28 @@ const productMeta = {
     }
 
     function refreshOptionLabels() {
-      const lc = labelCurrency()
+      const c = currency()
+      const ok = available()
       selects.forEach((s) => Array.from(s.options).forEach((o) => {
         if (!o.value) return
-        const c = lc === 'gbp' && hasGbpDelta(o) ? 'gbp' : 'eur'
-        const d = delta(o, c)
+        const d = ok ? delta(o, c) : 0
         o.textContent = o.dataset.choiceLabel + (d > 0 ? ' (+' + fmt(d, c) + ')' : '')
       }))
     }
 
     function refreshEstimate() {
-      const c = estimateCurrency()
-      if (estimateEl) estimateEl.textContent = fmt(computeEstimate(c), c)
+      if (estimateEl) estimateEl.textContent = available() ? fmt(computeEstimate(currency()), currency()) : '—'
     }
 
-    window.addEventListener('currency-change', () => { refreshOptionLabels(); refreshEstimate() })
+    function refreshAvailability() {
+      const ok = available()
+      if (submitBtn) submitBtn.disabled = !ok
+      unavailableNote?.classList.toggle('hidden', ok)
+    }
+
+    window.addEventListener('currency-change', () => { refreshOptionLabels(); refreshEstimate(); refreshAvailability() })
     refreshOptionLabels()
+    refreshAvailability()
 
     selects.forEach((s) => s.addEventListener('change', refreshEstimate))
     qtyInput?.addEventListener('input', refreshEstimate)
@@ -718,7 +717,6 @@ const productMeta = {
     // Submit request
     const form = document.getElementById('custom-request-form')
     const msgEl = document.getElementById('custom-form-msg')
-    const submitBtn = document.getElementById('custom-submit-btn')
     const successEl = document.getElementById('custom-success')
 
     function showMsg(text, ok) {
@@ -732,6 +730,7 @@ const productMeta = {
     form?.addEventListener('submit', async (e) => {
       e.preventDefault()
       msgEl?.classList.add('hidden')
+      if (!available()) return
 
       // Validate required option groups
       for (const s of selects) {
@@ -742,7 +741,7 @@ const productMeta = {
       }
 
       const fd = new FormData(form)
-      const currency = estimateCurrency()
+      const cur = currency()
       const options = selects
         .filter((s) => s.value)
         .map((s) => {
@@ -750,7 +749,7 @@ const productMeta = {
           return {
             label: s.getAttribute('data-label'),
             value: s.value,
-            priceDelta: opt ? delta(opt, currency) : 0,
+            priceDelta: opt ? delta(opt, cur) : 0,
           }
         })
 
@@ -763,8 +762,8 @@ const productMeta = {
         message: fd.get('message'),
         company: fd.get('company'), // honeypot
         options,
-        currency,
-        estimatedTotal: computeEstimate(currency),
+        currency: cur,
+        estimatedTotal: computeEstimate(cur),
       }
 
       submitBtn.disabled = true
