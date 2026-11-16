@@ -96,8 +96,8 @@ One-off Stripe Dashboard setup:
 payment, so a sold piece can't be bought again. It handles
 `checkout.session.completed` (when paid) and
 `checkout.session.async_payment_succeeded` (delayed methods), verifies Stripe's
-signature, and takes the bought quantity off the matching variant (same colour
-and size), or off the product's own stock if it has no variants. An open draft
+signature, and takes the bought quantity off the exact variant checkout sold
+(recorded as `variant_key`), or off the product's own stock if it has no variants. An open draft
 in the Studio is reduced too, so publishing it doesn't bring the old count back.
 
 Only stock is written to Sanity. Each handled session also leaves a small
@@ -191,6 +191,9 @@ authority on what a customer is charged (the browser's price is ignored). Its
 sale-window and per-currency logic mirrors `src/lib/catalog.ts` →
 `effectivePrice()` / `variantPrice()`. If you change pricing rules, change both.
 
-`functions/api/stripe-webhook.js` matches a paid line item to a variant by exact
-colour and size, the same way `checkout.js` does. If you change how checkout
-picks a variant, change the webhook too.
+`functions/api/checkout.js` decides which variant is sold and records its Sanity
+`_key` as `variant_key` in the Stripe line-item metadata.
+`functions/api/stripe-webhook.js` reduces exactly that variant and never matches
+on colour or size itself, so a new variant property only needs handling in
+checkout. (Sessions from before `variant_key` existed fall back to a colour + size
+match; that fallback can be removed once they have all been paid or expired.)

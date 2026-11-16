@@ -11,8 +11,11 @@
  * Every other event is acknowledged with 200 and ignored.
  *
  * Which stock to reduce comes from the line items' product metadata that
- * /api/checkout sets (product_id, size, color), matched against the product's
- * variants the same way checkout matches them.
+ * /api/checkout sets: product_id, plus variant_key (the Sanity `_key` of the
+ * exact variant checkout sold). The webhook never re-derives the variant from
+ * size/colour, so it can't drift from checkout when variants gain properties.
+ * Only sessions without variant_key (created before it existed) fall back to
+ * a size + colour match.
  *
  * IDEMPOTENT: Stripe retries webhooks. The stock patches and a marker document
  * `stripe-checkout.<session id>` are sent as ONE Sanity transaction. A retry
@@ -158,11 +161,12 @@ export function buildStockPatches(lineItems, docs) {
     const productId = String(meta.product_id || '').trim()
     const quantity = parseInt(li?.quantity, 10)
     if (!productId || !Number.isFinite(quantity) || quantity < 1) continue
+    const variantKey = meta.variant_key ? String(meta.variant_key) : ''
     const size = meta.size ? String(meta.size) : ''
     const color = meta.color ? String(meta.color) : ''
-    const key = JSON.stringify([productId, size, color])
+    const key = JSON.stringify([productId, variantKey, size, color])
     const prev = wanted.get(key)
-    wanted.set(key, { productId, size, color, quantity: (prev?.quantity || 0) + quantity })
+    wanted.set(key, { productId, variantKey, size, color, quantity: (prev?.quantity || 0) + quantity })
   }
 
   const byDoc = new Map() // doc id -> { path -> quantity }
@@ -182,8 +186,13 @@ export function buildStockPatches(lineItems, docs) {
     for (const doc of versions) {
       const variants = Array.isArray(doc.variants) ? doc.variants : []
       if (variants.length) {
-        // Same match as /api/checkout: exact size and colour.
-        const v = variants.find((x) => String(x?.size || '') === w.size && String(x?.color || '') === w.color)
+        const v = w.variantKey
+          ? // The exact variant /api/checkout sold. No attribute matching, so a
+            // new variant property only ever needs handling in checkout.
+            variants.find((x) => x?._key === w.variantKey)
+          : // Sessions created before checkout sent variant_key: fall back to
+            // checkout's old size + colour match. Safe to remove once those are settled.
+            variants.find((x) => String(x?.size || '') === w.size && String(x?.color || '') === w.color)
         if (v?._key) add(doc._id, `variants[_key=="${v._key}"].stock`, w.quantity)
         else skipped.push({ ...w, docId: doc._id })
       } else {

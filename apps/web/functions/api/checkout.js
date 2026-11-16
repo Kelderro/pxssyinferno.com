@@ -185,6 +185,8 @@ export async function onRequestPost({ request, env }) {
       unitAmount,
       quantity: w.quantity,
       productId: p._id,
+      // Exact variant sold, so /api/stripe-webhook reduces this one without re-matching attributes.
+      variantKey: matchedVariant?._key ? String(matchedVariant._key) : '',
       size: w.size,
       color: w.color,
     })
@@ -215,6 +217,7 @@ export async function onRequestPost({ request, env }) {
     form.set(`line_items[${i}][price_data][product_data][name]`, li.name)
     if (li.image) form.set(`line_items[${i}][price_data][product_data][images][0]`, li.image)
     form.set(`line_items[${i}][price_data][product_data][metadata][product_id]`, li.productId)
+    if (li.variantKey) form.set(`line_items[${i}][price_data][product_data][metadata][variant_key]`, li.variantKey)
     if (li.size) form.set(`line_items[${i}][price_data][product_data][metadata][size]`, li.size)
     if (li.color) form.set(`line_items[${i}][price_data][product_data][metadata][color]`, li.color)
   })

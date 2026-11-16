@@ -175,6 +175,31 @@ describe('buildStockPatches', () => {
     expect(patches[1].patch.dec).toEqual({ 'variants[_key=="k-m"].stock': 1, 'variants[_key=="k-xl"].stock': 2 })
   })
 
+  it('uses variant_key from checkout, even if the variant was renamed after the sale', () => {
+    // Bought as "XL / Black"; someone has since relabelled that variant in the Studio.
+    const docs = [{ _id: 'jacket', variants: [{ _key: 'k-xl', size: 'XXL', color: 'Black' }] }]
+    const { patches, skipped } = buildStockPatches(
+      [lineItem('jacket', 1, { variant_key: 'k-xl', size: 'XL', color: 'Black' })],
+      docs
+    )
+    expect(skipped).toEqual([])
+    expect(patches[1]).toEqual({ patch: { id: 'jacket', dec: { 'variants[_key=="k-xl"].stock': 1 } } })
+  })
+
+  it('never falls back to size/colour when a variant_key is given but not found', () => {
+    // The draft no longer has the variant; its size/colour lookalike must not be reduced.
+    const docs = [
+      { _id: 'jacket', variants: [{ _key: 'k-xl', size: 'XL', color: 'Black' }] },
+      { _id: 'drafts.jacket', variants: [{ _key: 'k-new', size: 'XL', color: 'Black' }] },
+    ]
+    const { patches, skipped } = buildStockPatches(
+      [lineItem('jacket', 1, { variant_key: 'k-xl', size: 'XL', color: 'Black' })],
+      docs
+    )
+    expect(patches.map((p) => p.patch.id)).toEqual(['jacket', 'jacket'])
+    expect(skipped).toEqual([expect.objectContaining({ docId: 'drafts.jacket' })])
+  })
+
   it('skips products that no longer exist or variants that do not match', () => {
     const { patches, skipped } = buildStockPatches(
       [lineItem('gone', 1), lineItem('jacket', 1, { size: 'S', color: 'Black' })],
