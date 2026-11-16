@@ -7,6 +7,9 @@
 STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxxxxxx
 # Fallback currency when a checkout request has none (eur | gbp).
 # STRIPE_CURRENCY=eur
+# Stock webhook: the whsec_ that `stripe listen` prints, and a Sanity Editor token.
+STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxx
+SANITY_WRITE_TOKEN=sk_xxxxxxxxxxxxxxxxxxxxxxxx
 
 # --- Resend (contact + custom-request emails) ---
 RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxx

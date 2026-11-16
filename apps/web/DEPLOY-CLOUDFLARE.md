@@ -45,6 +45,8 @@ PUBLIC_SANITY_API_VERSION = 2026-03-01
 **Runtime secrets (the Functions read these — mark as "Encrypt"):**
 ```
 STRIPE_SECRET_KEY   = sk_test_...        (swap to sk_live_ when going live)
+STRIPE_WEBHOOK_SECRET = whsec_...       (Stripe webhook endpoint, see PAYMENTS-SETUP.md)
+SANITY_WRITE_TOKEN  = sk...              (Sanity Editor token, for the stock webhook)
 RESEND_API_KEY      = re_...
 CONTACT_TO_EMAIL    = info@kelderro.nl
 CONTACT_FROM_EMAIL  = shop@pxssyinferno.com   (verified Resend sender domain)
