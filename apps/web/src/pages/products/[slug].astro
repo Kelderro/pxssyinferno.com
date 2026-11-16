@@ -12,6 +12,7 @@ import {
   choiceDelta,
   isOnSale,
   isSoldOut,
+  totalStock,
   isCustom,
   productSizes,
   formatPrice,
@@ -96,6 +97,8 @@ const productMeta = {
   _id: product._id,
   title: product.title,
   slug: product.slug?.current || slug,
+  // Build-time stock; used for products without variants (variants carry their own)
+  stock: totalStock(product),
 }
 ---
 
@@ -541,13 +544,33 @@ const productMeta = {
       })
     }
 
+    // Stock for the current selection (build-time snapshot; /api/checkout re-checks live stock)
+    function comboStock() {
+      if (!hasVariants) return Number(productMeta.stock) || 0
+      return ready() ? V.filter((v) => matchSize(v) && matchColor(v)).reduce((s, v) => s + v.stock, 0) : 0
+    }
+
+    function readCart() {
+      try {
+        const c = JSON.parse(localStorage.getItem('pi_cart') || '[]')
+        return Array.isArray(c) ? c : []
+      } catch { return [] }
+    }
+    const selKey = () => ({ size: hasSizes ? selSize : '', color: hasColors ? selColor : '' })
+    const isSelLine = (i, k) => i && i.id === productMeta._id && (i.size || '') === k.size && (i.color || '') === k.color
+    function inBasket() {
+      const k = selKey()
+      const line = readCart().find((i) => isSelLine(i, k))
+      return line ? Number(line.quantity) || 0 : 0
+    }
+
     function update() {
       refreshPrice()
       const r = ready()
       const priced = comboPrice[piCurrency.get()] > 0
-      let stock = Infinity
-      if (hasVariants) stock = r ? V.filter((v) => matchSize(v) && matchColor(v)).reduce((s, v) => s + v.stock, 0) : 0
-      if (addBtn) addBtn.disabled = !priced || !(!hasVariants || (r && stock > 0))
+      const stock = comboStock()
+      const full = r && stock > 0 && inBasket() >= stock
+      if (addBtn) addBtn.disabled = !priced || !r || stock <= 0 || full
       if (!stockNote) return
       stockNote.classList.remove('text-brand-red'); stockNote.classList.add('text-brand-muted')
       if (!priced) {
@@ -555,6 +578,7 @@ const productMeta = {
         stockNote.classList.add('text-brand-red'); stockNote.classList.remove('text-brand-muted')
         return
       }
+      if (full) { stockNote.textContent = 'All available stock is in your basket'; return }
       if (!hasVariants) { stockNote.textContent = ''; return }
       if (!r) { stockNote.textContent = (hasSizes && selSize === null) ? 'Select a size' : 'Select a colour'; return }
       if (stock <= 0) { stockNote.textContent = 'This combination is out of stock'; stockNote.classList.add('text-brand-red'); stockNote.classList.remove('text-brand-muted') }
@@ -622,25 +646,30 @@ const productMeta = {
     }
 
     window.addEventListener('currency-change', update)
+    // Basket changed in the drawer or in another tab
+    window.addEventListener('cart-change', update)
+    window.addEventListener('storage', (e) => { if (e.key === 'pi_cart') update() })
 
     addBtn?.addEventListener('click', () => {
       if (addBtn.disabled) return
-      let cart = []
-      try { cart = JSON.parse(localStorage.getItem('pi_cart') || '[]') } catch {}
-      const itemSize = hasSizes ? selSize : ''
-      const itemColor = hasColors ? selColor : ''
+      const cart = readCart()
+      const { size: itemSize, color: itemColor } = selKey()
+      const maxQty = comboStock()
       // Display prices only; /api/checkout re-fetches the real prices from Sanity.
       const prices = { eur: comboPrice.eur, gbp: comboPrice.gbp > 0 ? comboPrice.gbp : null }
-      const newItem = { id: productMeta._id, title: productMeta.title, prices, image: mainImageUrl, size: itemSize, color: itemColor, quantity: 1 }
-      const existingIdx = cart.findIndex((i) => i.id === newItem.id && (i.size || '') === itemSize && (i.color || '') === itemColor)
+      const newItem = { id: productMeta._id, title: productMeta.title, prices, image: mainImageUrl, size: itemSize, color: itemColor, quantity: 1, maxQty }
+      const existingIdx = cart.findIndex((i) => isSelLine(i, selKey()))
       if (existingIdx > -1) {
-        cart[existingIdx].quantity += 1
-        cart[existingIdx].prices = prices
-        delete cart[existingIdx].price
+        const line = cart[existingIdx]
+        line.quantity = Math.min((Number(line.quantity) || 0) + 1, maxQty)
+        line.maxQty = maxQty
+        line.prices = prices
+        delete line.price
       } else {
         cart.push(newItem)
       }
       try { localStorage.setItem('pi_cart', JSON.stringify(cart)) } catch {}
+      update()
       window.dispatchEvent(new CustomEvent('open-cart'))
     })
   } else {

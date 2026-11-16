@@ -52,7 +52,11 @@ import CurrencyToggle from './CurrencyToggle.astro'
     size: string;
     color?: string;
     quantity: number;
+    /** Stock when the item was added (build-time snapshot). Missing on older carts = no cap. */
+    maxQty?: number;
   }
+
+  const atMax = (item: CartItem) => typeof item.maxQty === 'number' && item.quantity >= item.maxQty
 
   const piCurrency = (window as any).piCurrency
   const currency = (): Currency => (piCurrency?.get() === 'gbp' ? 'gbp' : 'eur')
@@ -86,6 +90,7 @@ import CurrencyToggle from './CurrencyToggle.astro'
   function saveCart(cart: CartItem[]) {
     try { localStorage.setItem('pi_cart', JSON.stringify(cart)) } catch {}
     updateCartUI()
+    window.dispatchEvent(new CustomEvent('cart-change'))
   }
 
   function showCheckoutError(msg: string) {
@@ -139,7 +144,7 @@ import CurrencyToggle from './CurrencyToggle.astro'
             <div class="flex items-center border border-brand-border">
               <button onclick="window.changeCartQty(${idx}, -1)" class="px-2 py-0.5 text-sm text-white hover:text-brand-red" aria-label="Decrease quantity">−</button>
               <span class="px-2 text-xs font-mono text-white">${item.quantity}</span>
-              <button onclick="window.changeCartQty(${idx}, 1)" class="px-2 py-0.5 text-sm text-white hover:text-brand-red" aria-label="Increase quantity">+</button>
+              <button onclick="window.changeCartQty(${idx}, 1)" class="px-2 py-0.5 text-sm text-white hover:text-brand-red disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-white" aria-label="Increase quantity"${atMax(item) ? ' disabled title="No more in stock"' : ''}>+</button>
             </div>
             <button onclick="window.removeCartItem(${idx})" class="text-[10px] text-brand-red uppercase font-bold hover:underline">Remove</button>
           </div>
@@ -180,6 +185,7 @@ import CurrencyToggle from './CurrencyToggle.astro'
   ;(window as any).changeCartQty = (index: number, delta: number) => {
     const cart = getCart()
     if (!cart[index]) return
+    if (delta > 0 && atMax(cart[index])) return
     cart[index].quantity += delta
     if (cart[index].quantity < 1) {
       cart.splice(index, 1)
