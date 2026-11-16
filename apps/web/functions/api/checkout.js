@@ -130,6 +130,15 @@ export async function onRequestPost({ request, env }) {
   const byId = new Map(products.map((p) => [p._id, p]))
   const currency = resolveCurrency(payload?.currency, env.STRIPE_CURRENCY)
 
+  // Total requested per product/variant, so stock also holds when the same piece is split over several lines
+  const requested = new Map()
+  for (const w of wanted) {
+    const key = JSON.stringify([w.id, w.size, w.color])
+    requested.set(key, (requested.get(key) || 0) + w.quantity)
+  }
+  const requestedFor = (w) => requested.get(JSON.stringify([w.id, w.size, w.color])) || 0
+  const requestedForProduct = (id) => wanted.filter((x) => x.id === id).reduce((s, x) => s + x.quantity, 0)
+
   const lineItems = []
   for (const w of wanted) {
     const p = byId.get(w.id)
@@ -145,14 +154,18 @@ export async function onRequestPost({ request, env }) {
         (v) => String(v?.size || '') === w.size && String(v?.color || '') === w.color
       )
       const vStock = matchedVariant ? Number(matchedVariant.stock) || 0 : 0
-      if (!matchedVariant || vStock < w.quantity) {
+      if (!matchedVariant || vStock < requestedFor(w)) {
         return json(
           { error: `"${p.title}"${comboLabel ? ' (' + comboLabel + ')' : ''} is not available in that quantity.` },
           409
         )
       }
-    } else if (totalStock(p) <= 0) {
-      return json({ error: `"${p.title}" is sold out.` }, 409)
+    } else {
+      const stock = totalStock(p)
+      if (stock <= 0) return json({ error: `"${p.title}" is sold out.` }, 409)
+      if (stock < requestedForProduct(p._id)) {
+        return json({ error: `"${p.title}" is not available in that quantity.` }, 409)
+      }
     }
     // Per-variant price override wins; otherwise the product's sale-aware price.
     const unitPrice = matchedVariant ? variantPrice(p, matchedVariant, currency) : effectivePrice(p, currency)

@@ -151,3 +151,41 @@ describe('POST /api/checkout currency', () => {
     expect(lineItem(0)).toMatchObject({ currency: 'eur', unitAmount: 8000 })
   })
 })
+
+describe('POST /api/checkout stock', () => {
+  it('accepts a quantity equal to the stock of a product without variants', async () => {
+    const res = await post({ items: [{ id: 'eur-only', quantity: 2 }] })
+    expect(res.status).toBe(200)
+    expect(lineItem(0).quantity).toBe(2)
+  })
+
+  it('rejects more than the stock of a product without variants (409)', async () => {
+    const res = await post({ items: [{ id: 'eur-only', quantity: 3 }] })
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toContain('not available in that quantity')
+    expect(stripeBody).toBeNull()
+  })
+
+  it('rejects more than the variant stock (409)', async () => {
+    const res = await post({ items: [{ id: 'jacket', size: 'XL', color: 'Black', quantity: 2 }] })
+    expect(res.status).toBe(409)
+    expect(stripeBody).toBeNull()
+  })
+
+  it('adds up lines for the same variant before checking stock', async () => {
+    const res = await post({
+      items: [
+        { id: 'jacket', size: 'M', color: 'Black', quantity: 2 },
+        { id: 'jacket', size: 'M', color: 'Black', quantity: 2 },
+      ],
+    })
+    expect(res.status).toBe(409)
+    expect(stripeBody).toBeNull()
+  })
+
+  it('adds up lines for the same product without variants before checking stock', async () => {
+    const res = await post({ items: [{ id: 'eur-only', quantity: 1 }, { id: 'eur-only', quantity: 2 }] })
+    expect(res.status).toBe(409)
+    expect(stripeBody).toBeNull()
+  })
+})
