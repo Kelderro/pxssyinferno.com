@@ -63,6 +63,8 @@ const pricing = CURRENCIES.map((currency) => {
   return {
     currency,
     available,
+    // Made-to-order piece without a £ price: shown as a normal € price plus a note
+    eurFallback: !available && custom,
     base,
     showSale: available && isOnSale(product, currency) && !soldOut && !custom && !range.varies,
     label: !available
@@ -209,10 +211,18 @@ const productMeta = {
               <span data-cur={pr.currency}>
                 <span
                   data-product-price={pr.currency}
-                  class:list={[soldOut || !pr.available ? 'text-brand-muted' : 'text-white', !pr.available && 'text-base font-sans']}
+                  class:list={[
+                    soldOut || (!pr.available && !pr.eurFallback) ? 'text-brand-muted' : 'text-white',
+                    !pr.available && !pr.eurFallback && 'text-base font-sans',
+                  ]}
                 >
                   {pr.label}
                 </span>
+                {pr.eurFallback && (
+                  <span class="text-[10px] font-sans font-bold uppercase tracking-widest text-brand-muted">
+                    No £ price yet · quoted in €
+                  </span>
+                )}
                 {pr.showSale && (
                   <span class="line-through text-brand-muted text-base">{formatPrice(pr.base, pr.currency)}</span>
                 )}
