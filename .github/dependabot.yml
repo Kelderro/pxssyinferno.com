@@ -4,39 +4,12 @@
 
 version: 2
 updates:
-  # Root workspace
+  # pnpm workspace (root + apps/web + apps/studio).
+  # One entry at the root so Dependabot updates the shared root
+  # pnpm-lock.yaml; per-app entries cannot update it and break
+  # `pnpm install --frozen-lockfile` in CI.
   - package-ecosystem: "npm"
     directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "saturday"
-      time: "06:00"
-      timezone: "Europe/Amsterdam"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types:
-          - "minor"
-          - "patch"
-
-  # Astro web app
-  - package-ecosystem: "npm"
-    directory: "/apps/web"
-    schedule:
-      interval: "weekly"
-      day: "saturday"
-      time: "06:00"
-      timezone: "Europe/Amsterdam"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types:
-          - "minor"
-          - "patch"
-
-  # Sanity studio
-  - package-ecosystem: "npm"
-    directory: "/apps/studio"
     schedule:
       interval: "weekly"
       day: "saturday"
