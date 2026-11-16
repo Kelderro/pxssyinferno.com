@@ -6,14 +6,23 @@ import CurrencyToggle from '../components/CurrencyToggle.astro'
 interface Props {
   title?: string;
   description?: string;
+  /** Absolute share image for this page (e.g. a product photo). */
   image?: string;
+  /** og:type, e.g. "product" on product pages. */
+  ogType?: string;
 }
 
 const { 
   title = "Pussy Inferno | Hand-Painted Wearable Art", 
-  description = "Unique, hand-painted apparel drops and custom statement pieces." 
+  description = "Unique, hand-painted apparel drops and custom statement pieces.",
+  ogType = "website",
 } = Astro.props;
-const ogImage = Astro.props.image;
+const pageImage = Astro.props.image;
+// Fallback share image so every page has an absolute og:image.
+const ogImage = pageImage || new URL('/icon-512.png', Astro.site).href;
+// Canonical: this page on the production origin (astro.config.mjs `site`),
+// with no query string. Preview deploys point here too.
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
 
 // Single source for the header links (desktop nav + mobile menu)
 const navLinks = [
@@ -73,14 +82,20 @@ const navLinks = [
     </script>
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <meta property="og:site_name" content="Pussy Inferno" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
-    <meta property="og:type" content="website" />
-    {ogImage && <meta property="og:image" content={ogImage} />}
-    <meta name="twitter:card" content={ogImage ? "summary_large_image" : "summary"} />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content={pageImage ? "summary_large_image" : "summary"} />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
-    {ogImage && <meta name="twitter:image" content={ogImage} />}
+    <meta name="twitter:image" content={ogImage} />
+    <!-- Page-specific head content, e.g. structured data -->
+    <slot name="head" />
     <!-- Favicons -->
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

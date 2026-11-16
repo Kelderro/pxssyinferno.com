@@ -19,6 +19,7 @@ import {
   categoryLabel,
   type Product,
 } from '../../lib/catalog'
+import { productJsonLd, jsonLdScript } from '../../lib/structured-data'
 
 // 1. Generate static routes for all products at build time (SSG)
 export async function getStaticPaths() {
@@ -93,6 +94,17 @@ const ogImage =
     ? urlFor(product.images[0]).width(1200).height(630).fit('crop').format('jpg').url()
     : undefined
 
+// schema.org Product data for search results (price, currency, stock)
+const productUrl = new URL(Astro.url.pathname, Astro.site).href
+const structuredData = jsonLdScript(
+  productJsonLd(product, {
+    url: productUrl,
+    images: (product.images || [])
+      .slice(0, 4)
+      .map((img: any) => urlFor(img).width(1200).format('jpg').url()),
+  })
+)
+
 const productMeta = {
   _id: product._id,
   title: product.title,
@@ -106,7 +118,9 @@ const productMeta = {
   title={`${product.title} | Pussy Inferno`}
   description={`${product.title} — hand-painted wearable art by Pussy Inferno.`}
   image={ogImage}
+  ogType="product"
 >
+  <script type="application/ld+json" slot="head" set:html={structuredData} />
   <section class="max-w-7xl mx-auto px-6 py-12">
     <!-- Breadcrumb -->
     <nav class="text-xs font-bold uppercase tracking-widest text-brand-muted mb-8 flex items-center gap-2 flex-wrap">
