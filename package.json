@@ -1,6 +1,7 @@
 {
   "name": "pxssyinferno",
   "private": true,
+  "packageManager": "pnpm@12.15.0",
   "scripts": {
     "dev:web": "pnpm --filter web dev",
     "dev:studio": "pnpm --filter studio dev",
