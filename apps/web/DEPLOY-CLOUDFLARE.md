@@ -88,5 +88,7 @@ checkout is Stripe-hosted.
 ## Redeploys
 Every push to the connected branch rebuilds and redeploys. Changing a secret
 requires a new deployment to take effect (Deployments → Retry, or push a commit).
-The Sanity **Studio** deploys separately (`cd apps/studio && sanity deploy`); it
-is not part of this Pages project.
+The Sanity **Studio** is not part of this Pages project. GitHub Actions deploys
+it automatically (`.github/workflows/deploy-studio.yml`) on every push to `main`
+that touches `apps/studio/**` or `pnpm-lock.yaml`; see `apps/studio/README.md`
+for the one-time `SANITY_AUTH_TOKEN` setup and how to redeploy by hand.
