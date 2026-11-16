@@ -88,6 +88,12 @@ describe('checkout → stock webhook', () => {
     expect(reducedKeys(lineItems)).toEqual({ jacket: ['k-xl'], 'drafts.jacket': ['k-xl'] })
   })
 
+  it('carries the variant the shopper picked (by key) through to the stock that goes down', async () => {
+    const lineItems = await buy([{ id: 'jacket', variantKey: 'k-second', size: 'M', color: 'Black', quantity: 1 }])
+    expect(lineItems[0].price.product.metadata.variant_key).toBe('k-second')
+    expect(reducedKeys(lineItems)).toEqual({ jacket: ['k-second'], 'drafts.jacket': ['k-second'] })
+  })
+
   it('reduces the variant checkout picked, even when another has the same size and colour', async () => {
     const lineItems = await buy([{ id: 'jacket', size: 'M', color: 'Black', quantity: 1 }])
     const sold = lineItems[0].price.product.metadata.variant_key
