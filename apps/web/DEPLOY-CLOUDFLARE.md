@@ -53,7 +53,7 @@ CONTACT_FROM_EMAIL  = shop@pxssyinferno.com   (verified Resend sender domain)
 **Optional (defaults exist):**
 ```
 SITE_URL                   = https://pxssyinferno.com   (used for Stripe success/cancel URLs)
-STRIPE_CURRENCY            = eur
+STRIPE_CURRENCY            = eur   (fallback only; the shopper's €/£ choice wins)
 ALLOWED_SHIPPING_COUNTRIES = NL,BE,DE,FR,GB,US,CA,AU
 ```
 

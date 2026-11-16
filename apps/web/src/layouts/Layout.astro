@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css'
 import CartDrawer from '../components/CartDrawer.astro'
+import CurrencyToggle from '../components/CurrencyToggle.astro'
 
 interface Props {
   title?: string;
@@ -28,6 +29,48 @@ const navLinks = [
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Currency: apply the saved choice before first paint (no flash of the wrong
+         currency) and expose window.piCurrency for the page scripts. -->
+    <script is:inline>
+      (function () {
+        var KEY = 'pi_currency'
+        var root = document.documentElement
+        var valid = function (c) { return c === 'eur' || c === 'gbp' }
+        var saved = null
+        try { saved = localStorage.getItem(KEY) } catch (e) {}
+        var initial = saved
+        if (!valid(initial)) {
+          // No choice yet: default to GBP for en-GB browsers, EUR otherwise.
+          var lang = String((navigator.languages && navigator.languages[0]) || navigator.language || '')
+          initial = /^en-gb$/i.test(lang) ? 'gbp' : 'eur'
+        }
+        root.setAttribute('data-currency', initial)
+        var formatters = {}
+        window.piCurrency = {
+          get: function () { return root.getAttribute('data-currency') === 'gbp' ? 'gbp' : 'eur' },
+          set: function (c) {
+            if (!valid(c)) return
+            root.setAttribute('data-currency', c)
+            try { localStorage.setItem(KEY, c) } catch (e) {}
+            window.dispatchEvent(new CustomEvent('currency-change', { detail: c }))
+          },
+          // Mirrors formatPrice() in src/lib/catalog.ts
+          format: function (n, c) {
+            c = valid(c) ? c : window.piCurrency.get()
+            var num = Number(n) || 0
+            var digits = Number.isInteger(num) ? 0 : 2
+            var key = c + digits
+            if (!formatters[key]) {
+              formatters[key] = new Intl.NumberFormat('en-GB', {
+                style: 'currency', currency: c.toUpperCase(),
+                minimumFractionDigits: digits, maximumFractionDigits: digits,
+              })
+            }
+            return formatters[key].format(num)
+          },
+        }
+      })()
+    </script>
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta property="og:title" content={title} />
@@ -72,6 +115,8 @@ const navLinks = [
         </nav>
 
         <div class="flex items-center gap-2 shrink-0">
+          <CurrencyToggle class="max-md:hidden" />
+
           <!-- Cart Trigger Button -->
           <button
             id="open-cart-btn"
@@ -116,6 +161,10 @@ const navLinks = [
             </li>
           ))}
         </ul>
+        <div class="px-4 pb-4 pt-2 flex items-center justify-between gap-4 border-t border-brand-border/50">
+          <span class="text-xs font-bold tracking-wider uppercase text-brand-muted">Currency</span>
+          <CurrencyToggle />
+        </div>
       </nav>
     </header>
 
@@ -172,6 +221,27 @@ const navLinks = [
 </html>
 
 <script>
+  // Currency toggles (header, mobile menu, cart drawer): click to switch, keep aria-pressed in sync
+  const piCurrency = (window as any).piCurrency
+  const syncCurrencyButtons = () => {
+    const current = piCurrency?.get()
+    document.querySelectorAll<HTMLButtonElement>('[data-set-currency]').forEach((btn) => {
+      btn.setAttribute('aria-pressed', String(btn.dataset.setCurrency === current))
+    })
+  }
+  document.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-set-currency]')
+    if (btn) piCurrency?.set(btn.dataset.setCurrency)
+  })
+  window.addEventListener('currency-change', syncCurrencyButtons)
+  // Another tab changed the currency
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'pi_currency' && (e.newValue === 'eur' || e.newValue === 'gbp') && e.newValue !== piCurrency?.get()) {
+      piCurrency?.set(e.newValue)
+    }
+  })
+  syncCurrencyButtons()
+
   // Connect navbar cart button to dispatch the open event to CartDrawer
   document.getElementById('open-cart-btn')?.addEventListener('click', () => {
     window.dispatchEvent(new CustomEvent('open-cart'))

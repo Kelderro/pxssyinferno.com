@@ -1,0 +1,45 @@
+---
+/**
+ * Product-card price ("From €X", sale strike-through) in both currencies.
+ * global.css shows only the group for the selected currency.
+ */
+import {
+  CURRENCIES,
+  basePrice,
+  variantPriceRange,
+  hasPriceIn,
+  isOnSale,
+  isSoldOut,
+  isCustom,
+  formatPrice,
+  type Product,
+} from '../lib/catalog'
+
+interface Props {
+  product: Product
+}
+const { product } = Astro.props
+const soldOut = isSoldOut(product)
+const custom = isCustom(product)
+---
+
+{CURRENCIES.map((currency) => {
+  const range = variantPriceRange(product, currency)
+  const available = hasPriceIn(product, currency)
+  const onSale = available && isOnSale(product, currency)
+  const fmt = (n: number) => formatPrice(n, currency)
+  return (
+    <span data-cur={currency}>
+      {available ? (
+        <span class={soldOut ? 'text-brand-muted line-through' : 'text-white'}>
+          {custom || range.varies ? `From ${fmt(range.min)}` : fmt(range.min)}
+        </span>
+      ) : (
+        <span class="text-brand-muted text-xs font-bold normal-case">Not available in £</span>
+      )}
+      {onSale && !soldOut && !range.varies && (
+        <span class="line-through text-brand-muted text-xs">{fmt(basePrice(product, currency))}</span>
+      )}
+    </span>
+  )
+})}

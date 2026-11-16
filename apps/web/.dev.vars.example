@@ -5,6 +5,7 @@
 
 # --- Stripe (test mode) ---
 STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxxxxxx
+# Fallback currency when a checkout request has none (eur | gbp).
 # STRIPE_CURRENCY=eur
 
 # --- Resend (contact + custom-request emails) ---

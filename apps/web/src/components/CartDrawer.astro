@@ -1,3 +1,7 @@
+---
+import CurrencyToggle from './CurrencyToggle.astro'
+---
+
 <!-- Cart Overlay Backdrop -->
 <div id="cart-backdrop" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden transition-opacity"></div>
 
@@ -16,6 +20,10 @@
 
   <!-- Footer / Checkout Section -->
   <div class="p-6 border-t border-brand-border space-y-4 bg-brand-black">
+    <div class="flex justify-between items-center gap-4 text-xs font-bold uppercase tracking-wider">
+      <span class="text-brand-muted">Pay in</span>
+      <CurrencyToggle />
+    </div>
     <div class="flex justify-between items-center text-sm font-bold uppercase tracking-wider">
       <span class="text-brand-muted">Subtotal</span>
       <span id="cart-subtotal" class="text-white font-mono text-base">€0</span>
@@ -32,31 +40,63 @@
 
 <script>
   // Global Cart State Manager
+  // Each item keeps its unit price in every currency, so the cart is always
+  // shown (and checked out) in the one currency the shopper selected.
+  type Currency = 'eur' | 'gbp'
+
   interface CartItem {
     id: string;
     title: string;
-    price: number;
+    prices: { eur: number; gbp: number | null };
     image: string;
     size: string;
     color?: string;
     quantity: number;
   }
 
-  function eur(n: number): string {
-    return '€' + (Number.isInteger(n) ? String(n) : n.toFixed(2))
+  const piCurrency = (window as any).piCurrency
+  const currency = (): Currency => (piCurrency?.get() === 'gbp' ? 'gbp' : 'eur')
+  const money = (n: number) => piCurrency.format(n, currency())
+
+  // Unit price in the selected currency, or null when the item has none.
+  function unitPrice(item: CartItem): number | null {
+    const v = item.prices?.[currency()]
+    return typeof v === 'number' && v > 0 ? v : null
+  }
+
+  function escapeHtml(s: unknown): string {
+    return String(s ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string
+    )
   }
 
   function getCart(): CartItem[] {
     try {
-      return JSON.parse(localStorage.getItem('pi_cart') || '[]')
+      const raw = JSON.parse(localStorage.getItem('pi_cart') || '[]')
+      if (!Array.isArray(raw)) return []
+      // Older carts stored a single EUR `price`
+      return raw.map((i: any) =>
+        i && !i.prices ? { ...i, prices: { eur: Number(i.price) || 0, gbp: null } } : i
+      )
     } catch {
       return []
     }
   }
 
   function saveCart(cart: CartItem[]) {
-    localStorage.setItem('pi_cart', JSON.stringify(cart))
+    try { localStorage.setItem('pi_cart', JSON.stringify(cart)) } catch {}
     updateCartUI()
+  }
+
+  function showCheckoutError(msg: string) {
+    const errorEl = document.getElementById('checkout-error')
+    if (!errorEl) return
+    errorEl.textContent = msg
+    errorEl.classList.remove('hidden')
+  }
+
+  function hideCheckoutError() {
+    document.getElementById('checkout-error')?.classList.add('hidden')
   }
 
   function updateCartUI() {
@@ -70,10 +110,16 @@
     const totalCount = cart.reduce((acc, item) => acc + item.quantity, 0)
     if (countBadge) countBadge.textContent = totalCount.toString()
 
-    const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0)
-    if (subtotalEl) subtotalEl.textContent = eur(subtotal)
+    const unavailable = cart.filter((item) => unitPrice(item) === null)
+    const subtotal = cart.reduce((acc, item) => acc + (unitPrice(item) ?? 0) * item.quantity, 0)
+    if (subtotalEl) subtotalEl.textContent = unavailable.length ? '—' : money(subtotal)
 
-    if (checkoutBtn) checkoutBtn.disabled = cart.length === 0
+    if (checkoutBtn) checkoutBtn.disabled = cart.length === 0 || unavailable.length > 0
+    if (unavailable.length) {
+      showCheckoutError('Some items are not available in £. Remove them or switch to €.')
+    } else {
+      hideCheckoutError()
+    }
 
     if (!container) return
 
@@ -85,10 +131,10 @@
 
     container.innerHTML = cart.map((item, idx) => `
       <div class="flex gap-4 border-b border-brand-border/50 pb-4 items-center">
-        <img src="${item.image}" alt="${item.title}" class="w-16 h-16 object-cover bg-black border border-brand-border" />
+        <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.title)}" class="w-16 h-16 object-cover bg-black border border-brand-border" />
         <div class="flex-1 space-y-1">
-          <h4 class="text-sm font-bold uppercase text-white">${item.title}</h4>
-          <p class="text-[10px] text-brand-muted font-mono uppercase">Size: ${item.size || 'OS'}${item.color ? ' · ' + item.color : ''} | ${eur(item.price)}</p>
+          <h4 class="text-sm font-bold uppercase text-white">${escapeHtml(item.title)}</h4>
+          <p class="text-[10px] text-brand-muted font-mono uppercase">Size: ${escapeHtml(item.size || 'OS')}${item.color ? ' · ' + escapeHtml(item.color) : ''} | ${unitPrice(item) === null ? '<span class="text-brand-red">Not available in £</span>' : money(unitPrice(item) as number)}</p>
           <div class="flex items-center gap-3 pt-1">
             <div class="flex items-center border border-brand-border">
               <button onclick="window.changeCartQty(${idx}, -1)" class="px-2 py-0.5 text-sm text-white hover:text-brand-red" aria-label="Decrease quantity">−</button>
@@ -120,6 +166,9 @@
   document.getElementById('close-cart-btn')?.addEventListener('click', closeCart)
   backdrop?.addEventListener('click', closeCart)
   window.addEventListener('open-cart', openCart)
+  window.addEventListener('currency-change', () => updateCartUI())
+  // Cart changed in another tab
+  window.addEventListener('storage', (e) => { if (e.key === 'pi_cart') updateCartUI() })
 
   // Quantity + remove handlers exposed for dynamically rendered items
   ;(window as any).removeCartItem = (index: number) => {
@@ -140,19 +189,12 @@
 
   // Checkout -> Stripe Checkout Session via the Pages Function
   const checkoutBtn = document.getElementById('checkout-btn') as HTMLButtonElement | null
-  const errorEl = document.getElementById('checkout-error')
-
-  function showCheckoutError(msg: string) {
-    if (!errorEl) return
-    errorEl.textContent = msg
-    errorEl.classList.remove('hidden')
-  }
 
   checkoutBtn?.addEventListener('click', async () => {
     const cart = getCart()
     if (cart.length === 0) return
 
-    errorEl?.classList.add('hidden')
+    hideCheckoutError()
     const original = checkoutBtn.textContent
     checkoutBtn.disabled = true
     checkoutBtn.textContent = 'REDIRECTING…'
@@ -162,6 +204,7 @@
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          currency: currency(),
           items: cart.map((i) => ({ id: i.id, size: i.size || '', color: i.color || '', quantity: i.quantity })),
         }),
       })

@@ -1,14 +1,15 @@
 ---
 import Layout from '../layouts/Layout.astro'
+import CardPrice from '../components/CardPrice.astro'
 import { sanityClient, urlFor } from '../lib/sanity'
 import {
   PRODUCT_FIELDS,
-  variantPriceRange,
   isOnSale,
   isSoldOut,
   isCustom,
   productSizes,
-  formatEUR,
+  CURRENCIES,
+  hasPriceIn,
   type Product,
 } from '../lib/catalog'
 
@@ -44,8 +45,8 @@ const products: Product[] = await sanityClient.fetch(`
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
       {products.map((item) => {
-        const range = variantPriceRange(item)
-        const onSale = isOnSale(item)
+        // Currencies this piece is on sale in (SALE badge per currency)
+        const saleIn = CURRENCIES.filter((c) => hasPriceIn(item, c) && isOnSale(item, c))
         const soldOut = isSoldOut(item)
         const custom = isCustom(item)
         const sizes = productSizes(item)
@@ -62,10 +63,8 @@ const products: Product[] = await sanityClient.fetch(`
                   <span class="bg-white text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">
                     MADE TO ORDER
                   </span>
-                ) : onSale ? (
-                  <span class="bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">
-                    SALE
-                  </span>
+                ) : saleIn.length ? (
+                  saleIn.map((c) => <span data-cur={c}><span class="bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">SALE</span></span>)
                 ) : null}
               </div>
               {item.mainImage ? (
@@ -90,10 +89,7 @@ const products: Product[] = await sanityClient.fetch(`
               
               <div class="flex items-center justify-between">
                 <div class="text-base font-extrabold flex items-center gap-2">
-                  <span class={soldOut ? 'text-brand-muted line-through' : 'text-white'}>
-                    {custom || range.varies ? `From ${formatEUR(range.min)}` : formatEUR(range.min)}
-                  </span>
-                  {onSale && !soldOut && !range.varies && <span class="line-through text-brand-muted text-xs">{formatEUR(item.price)}</span>}
+                  <CardPrice product={item} />
                 </div>
 
                 {sizes.length > 0 && (

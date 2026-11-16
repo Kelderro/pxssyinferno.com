@@ -1,0 +1,29 @@
+---
+/**
+ * € / £ switch. Any number can be on a page; Layout.astro wires every
+ * [data-set-currency] button to window.piCurrency and keeps aria-pressed in sync.
+ */
+interface Props {
+  class?: string
+}
+const { class: className = '' } = Astro.props
+const options = [
+  { value: 'eur', symbol: '€', label: 'Euro' },
+  { value: 'gbp', symbol: '£', label: 'Pound sterling' },
+]
+---
+
+<div role="group" aria-label="Currency" class:list={['currency-toggle flex border border-brand-border h-11 shrink-0', className]}>
+  {options.map((o) => (
+    <button
+      type="button"
+      data-set-currency={o.value}
+      aria-pressed="false"
+      aria-label={`Prices in ${o.label}`}
+      title={`Prices in ${o.label}`}
+      class="w-10 text-sm font-black text-brand-muted hover:text-white transition aria-pressed:bg-brand-red aria-pressed:text-black"
+    >
+      {o.symbol}
+    </button>
+  ))}
+</div>

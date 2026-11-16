@@ -1,15 +1,17 @@
 ---
 import Layout from '../layouts/Layout.astro'
+import CardPrice from '../components/CardPrice.astro'
 import { sanityClient, urlFor } from '../lib/sanity'
 import {
   PRODUCT_FIELDS,
   priceFrom,
-  variantPriceRange,
+  formatPrice,
   isOnSale,
   isSoldOut,
   isCustom,
   productSizes,
-  formatEUR,
+  CURRENCIES,
+  hasPriceIn,
   type Product,
 } from '../lib/catalog'
 
@@ -21,10 +23,18 @@ const products: Product[] = await sanityClient.fetch(`
 
 const categories = ['All', ...new Set(products.map((p) => p.category).filter(Boolean))]
 
-// Price-filter bounds from the actual catalogue
-const prices = products.map((p) => priceFrom(p)).filter((n) => Number.isFinite(n))
+// "From" price per currency; null when the piece has no price in that currency
+const cardPrice = (p: Product, c: (typeof CURRENCIES)[number]) => (hasPriceIn(p, c) ? priceFrom(p, c) : null)
+
+// Price-filter bounds from the actual catalogue, per currency.
+// null = no piece has a price in that currency (the slider is then hidden).
+const maxFor = (c: (typeof CURRENCIES)[number]) => {
+  const prices = products.map((p) => cardPrice(p, c)).filter((n): n is number => n !== null && Number.isFinite(n))
+  return prices.length ? Math.max(Math.ceil(Math.max(...prices)), 1) : null
+}
 const priceMin = 0
-const priceMax = Math.max(Math.ceil(Math.max(0, ...prices)), 1)
+const priceMaxByCurrency = { eur: maxFor('eur'), gbp: maxFor('gbp') }
+const priceMax = priceMaxByCurrency.eur ?? 1
 const priceStep = 1
 ---
 
@@ -72,15 +82,15 @@ const priceStep = 1
       </div>
 
       <!-- Price range -->
-      <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+      <div id="price-filter" class="flex flex-col sm:flex-row sm:items-center gap-4">
         <span class="text-xs font-bold uppercase tracking-wider text-white">Price</span>
-        <div class="price-range relative flex-1 max-w-md h-8">
+        <div class="price-range relative flex-1 max-w-md h-8" data-max-eur={priceMaxByCurrency.eur ?? ''} data-max-gbp={priceMaxByCurrency.gbp ?? ''}>
           <div class="range-track"></div>
           <div class="range-fill" id="range-fill"></div>
           <input type="range" id="price-min" min={priceMin} max={priceMax} step={priceStep} value={priceMin} aria-label="Minimum price" />
           <input type="range" id="price-max" min={priceMin} max={priceMax} step={priceStep} value={priceMax} aria-label="Maximum price" />
         </div>
-        <span id="price-readout" class="text-xs font-mono text-white whitespace-nowrap">{formatEUR(priceMin)} – {formatEUR(priceMax)}</span>
+        <span id="price-readout" class="text-xs font-mono text-white whitespace-nowrap">{formatPrice(priceMin)} – {formatPrice(priceMax)}</span>
       </div>
 
       <div class="text-xs text-brand-muted uppercase tracking-wider">
@@ -91,8 +101,8 @@ const priceStep = 1
     <!-- Product Grid -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8" id="product-grid">
       {products.map((item, idx) => {
-        const range = variantPriceRange(item)
-        const onSale = isOnSale(item)
+        // Currencies this piece is on sale in (SALE badge per currency)
+        const saleIn = CURRENCIES.filter((c) => hasPriceIn(item, c) && isOnSale(item, c))
         const soldOut = isSoldOut(item)
         const custom = isCustom(item)
         const sizes = productSizes(item)
@@ -102,7 +112,8 @@ const priceStep = 1
             href={`/products/${item.slug?.current}`}
             class="product-card group bg-brand-card border border-brand-border overflow-hidden block transition duration-300 hover:border-brand-red relative"
             data-category={item.category || ''}
-            data-price={range.min}
+            data-price-eur={cardPrice(item, 'eur') ?? ''}
+            data-price-gbp={cardPrice(item, 'gbp') ?? ''}
             data-order={idx}
           >
             <div class="absolute top-3 left-3 z-20 flex flex-col gap-1.5 items-start">
@@ -110,8 +121,8 @@ const priceStep = 1
                 <span class="bg-neutral-800 text-neutral-400 text-[10px] font-black uppercase px-2 py-1 tracking-widest border border-neutral-700">SOLD OUT</span>
               ) : custom ? (
                 <span class="bg-white text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">MADE TO ORDER</span>
-              ) : onSale ? (
-                <span class="bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">SALE</span>
+              ) : saleIn.length ? (
+                saleIn.map((c) => <span data-cur={c}><span class="bg-brand-red text-black text-[10px] font-black uppercase px-2 py-1 tracking-widest">SALE</span></span>)
               ) : null}
             </div>
 
@@ -142,10 +153,7 @@ const priceStep = 1
               <div class="flex justify-between items-start gap-2">
                 <h2 class="text-lg font-bold uppercase tracking-wide group-hover:text-brand-red transition">{item.title}</h2>
                 <div class="text-base font-extrabold flex items-center gap-2 whitespace-nowrap">
-                  <span class={soldOut ? 'text-brand-muted line-through' : 'text-white'}>
-                    {custom || range.varies ? `From ${formatEUR(range.min)}` : formatEUR(range.min)}
-                  </span>
-                  {onSale && !soldOut && !range.varies && <span class="line-through text-brand-muted text-xs">{formatEUR(item.price)}</span>}
+                  <CardPrice product={item} />
                 </div>
               </div>
               {sizes.length > 0 && (
@@ -234,11 +242,34 @@ const priceStep = 1
   const activeClasses = ['border-brand-red', 'bg-brand-red', 'text-black']
   const idleClasses = ['border-brand-border', 'bg-brand-card', 'text-white', 'hover:border-brand-red']
 
-  const PMAX = maxInput ? Number(maxInput.max) : 0
+  const piCurrency = (window as any).piCurrency
+  const rangeBox = document.querySelector<HTMLElement>('.price-range')
+  let PMAX = maxInput ? Number(maxInput.max) : 0
   let activeCat = 'All'
 
-  const eur = (n: number) => '€' + (Number.isInteger(n) ? String(n) : n.toFixed(2))
-  const priceOf = (c: HTMLElement) => Number(c.dataset.price) || 0
+  const money = (n: number) => piCurrency.format(n, piCurrency.get())
+  // Card price in the selected currency; null = not sold in that currency
+  const priceOf = (c: HTMLElement): number | null => {
+    const v = piCurrency.get() === 'gbp' ? c.dataset.priceGbp : c.dataset.priceEur
+    return v ? Number(v) : null
+  }
+  // Unpriced pieces sort last either way
+  const sortKey = (c: HTMLElement, dir: 1 | -1) => {
+    const p = priceOf(c)
+    return p === null ? Infinity : dir * p
+  }
+
+  // Slider bounds follow the selected currency; switching resets the range
+  function applyCurrencyBounds() {
+    if (!minInput || !maxInput || !rangeBox) return
+    const max = piCurrency.get() === 'gbp' ? rangeBox.dataset.maxGbp : rangeBox.dataset.maxEur
+    // Nothing is priced in this currency yet: hide the (meaningless) slider
+    document.getElementById('price-filter')?.classList.toggle('hidden', !max)
+    PMAX = Number(max) || 1
+    minInput.max = maxInput.max = String(PMAX)
+    minInput.value = minInput.min
+    maxInput.value = String(PMAX)
+  }
   const orderOf = (c: HTMLElement) => Number(c.dataset.order) || 0
 
   function updateRangeUI() {
@@ -250,7 +281,7 @@ const priceStep = 1
     const rightPct = PMAX ? (hi / PMAX) * 100 : 100
     fill.style.left = leftPct + '%'
     fill.style.width = Math.max(0, rightPct - leftPct) + '%'
-    readout.textContent = `${eur(lo)} – ${eur(hi)}`
+    readout.textContent = `${money(lo)} – ${money(hi)}`
   }
 
   function apply() {
@@ -258,8 +289,8 @@ const priceStep = 1
     if (grid && sortSel) {
       const mode = sortSel.value
       const sorted = [...cards]
-      if (mode === 'price-asc') sorted.sort((a, b) => priceOf(a) - priceOf(b))
-      else if (mode === 'price-desc') sorted.sort((a, b) => priceOf(b) - priceOf(a))
+      if (mode === 'price-asc') sorted.sort((a, b) => sortKey(a, 1) - sortKey(b, 1))
+      else if (mode === 'price-desc') sorted.sort((a, b) => sortKey(a, -1) - sortKey(b, -1))
       else sorted.sort((a, b) => orderOf(a) - orderOf(b))
       sorted.forEach((c) => grid.appendChild(c))
     }
@@ -276,7 +307,8 @@ const priceStep = 1
     cards.forEach((c) => {
       const p = priceOf(c)
       const catOk = activeCat === 'All' || c.dataset.category === activeCat
-      const priceOk = p >= low && p <= high
+      // A piece with no price in this currency only shows while the range is unfiltered
+      const priceOk = p === null ? low === -Infinity && high === Infinity : p >= low && p <= high
       const show = catOk && priceOk
       c.style.display = show ? '' : 'none'
       if (show) visible++
@@ -316,6 +348,11 @@ const priceStep = 1
     updateRangeUI(); apply()
   })
 
+  window.addEventListener('currency-change', () => {
+    applyCurrencyBounds(); updateRangeUI(); apply()
+  })
+
+  applyCurrencyBounds()
   updateRangeUI()
   apply()
 </script>
