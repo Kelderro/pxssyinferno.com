@@ -10,7 +10,11 @@ import {
   productSizes,
   productColors,
   totalStock,
-  formatEUR,
+  formatPrice,
+  hasPriceIn,
+  choiceDelta,
+  basePrice,
+  isCurrency,
   categoryLabel,
   type Product,
   type Variant,
@@ -81,17 +85,17 @@ describe('effectivePrice', () => {
 
   it('returns sale price within an active timed sale window', () => {
     const now = new Date('2026-06-15T12:00:00Z').getTime()
-    expect(effectivePrice(timedSaleProduct, now)).toBe(150)
+    expect(effectivePrice(timedSaleProduct, 'eur', now)).toBe(150)
   })
 
   it('returns base price before the sale window starts', () => {
     const now = new Date('2025-12-31T23:59:59Z').getTime()
-    expect(effectivePrice(timedSaleProduct, now)).toBe(200)
+    expect(effectivePrice(timedSaleProduct, 'eur', now)).toBe(200)
   })
 
   it('returns base price after the sale window ends', () => {
     const now = new Date('2027-01-01T00:00:00Z').getTime()
-    expect(effectivePrice(timedSaleProduct, now)).toBe(200)
+    expect(effectivePrice(timedSaleProduct, 'eur', now)).toBe(200)
   })
 
   it('returns base price for an expired sale', () => {
@@ -255,27 +259,176 @@ describe('productColors', () => {
   })
 })
 
-// ─── formatEUR ────────────────────────────────────────────────────────────────
+// ─── formatPrice ──────────────────────────────────────────────────────────────
 
-describe('formatEUR', () => {
+describe('formatPrice', () => {
   it('formats whole euros without decimals', () => {
-    expect(formatEUR(340)).toBe('€340')
+    expect(formatPrice(340, 'eur')).toBe('€340')
   })
 
-  it('formats cents with two decimal places', () => {
-    expect(formatEUR(99.9)).toBe('€99.90')
+  it('formats whole pounds without decimals', () => {
+    expect(formatPrice(340, 'gbp')).toBe('£340')
+  })
+
+  it('formats cents / pence with two decimal places', () => {
+    expect(formatPrice(99.9, 'eur')).toBe('€99.90')
+    expect(formatPrice(99.9, 'gbp')).toBe('£99.90')
+  })
+
+  it('groups thousands', () => {
+    expect(formatPrice(1200, 'gbp')).toBe('£1,200')
+  })
+
+  it('defaults to EUR', () => {
+    expect(formatPrice(5)).toBe('€5')
   })
 
   it('formats 0', () => {
-    expect(formatEUR(0)).toBe('€0')
+    expect(formatPrice(0, 'eur')).toBe('€0')
   })
 
   it('handles undefined gracefully', () => {
-    expect(formatEUR(undefined)).toBe('€0')
+    expect(formatPrice(undefined, 'gbp')).toBe('£0')
   })
 
   it('handles string numbers', () => {
-    expect(formatEUR('120')).toBe('€120')
+    expect(formatPrice('120', 'eur')).toBe('€120')
+  })
+})
+
+// ─── GBP pricing ──────────────────────────────────────────────────────────────
+
+const gbpProduct: Product = {
+  ...baseProduct,
+  priceGbp: 175,
+  salePriceGbp: 130,
+  salePrice: 150,
+  saleStartDate: '2026-01-01T00:00:00Z',
+  saleEndDate: '2026-12-31T23:59:59Z',
+}
+
+describe('isCurrency', () => {
+  it('accepts eur and gbp only', () => {
+    expect(isCurrency('eur')).toBe(true)
+    expect(isCurrency('gbp')).toBe(true)
+    expect(isCurrency('usd')).toBe(false)
+    expect(isCurrency('GBP')).toBe(false)
+    expect(isCurrency(undefined)).toBe(false)
+  })
+})
+
+describe('GBP: basePrice / effectivePrice', () => {
+  const during = new Date('2026-06-15T12:00:00Z').getTime()
+  const after = new Date('2027-01-01T00:00:00Z').getTime()
+
+  it('reads the manually set GBP price, not a conversion of EUR', () => {
+    expect(basePrice(gbpProduct, 'gbp')).toBe(175)
+    expect(basePrice(gbpProduct, 'eur')).toBe(200)
+  })
+
+  it('applies the GBP sale price inside the shared sale window', () => {
+    expect(effectivePrice(gbpProduct, 'gbp', during)).toBe(130)
+    expect(effectivePrice(gbpProduct, 'eur', during)).toBe(150)
+  })
+
+  it('returns the GBP regular price outside the sale window', () => {
+    expect(effectivePrice(gbpProduct, 'gbp', after)).toBe(175)
+  })
+
+  it('ignores a GBP sale price that is not lower than the GBP price', () => {
+    const p: Product = { ...baseProduct, priceGbp: 100, salePriceGbp: 120 }
+    expect(effectivePrice(p, 'gbp')).toBe(100)
+  })
+
+  it('does not use the EUR sale price for GBP', () => {
+    const p: Product = { ...saleProduct, priceGbp: 170 }
+    expect(effectivePrice(p, 'gbp')).toBe(170)
+    expect(isOnSale(p, 'gbp')).toBe(false)
+    expect(isOnSale(p, 'eur')).toBe(true)
+  })
+
+  it('returns 0 when there is no GBP price', () => {
+    expect(effectivePrice(saleProduct, 'gbp')).toBe(0)
+  })
+
+  it('isOnSale is per currency', () => {
+    expect(isOnSale(gbpProduct, 'gbp', during)).toBe(true)
+    expect(isOnSale(gbpProduct, 'gbp', after)).toBe(false)
+  })
+})
+
+describe('GBP: variant prices', () => {
+  const p: Product = {
+    ...baseProduct,
+    priceGbp: 170,
+    variants: [
+      { size: 'S', price: 200 },
+      { size: 'XL', price: 250, priceGbp: 215 },
+      { size: 'XXL', priceGbp: 230 },
+    ],
+  }
+
+  it('uses the variant GBP override when set', () => {
+    expect(variantPrice(p, p.variants![1], 'gbp')).toBe(215)
+    expect(variantPrice(p, p.variants![2], 'gbp')).toBe(230)
+  })
+
+  it('falls back to the product GBP price, not the variant EUR override', () => {
+    expect(variantPrice(p, p.variants![0], 'gbp')).toBe(170)
+  })
+
+  it('keeps EUR variant pricing unchanged', () => {
+    expect(variantPrice(p, p.variants![1], 'eur')).toBe(250)
+    expect(variantPrice(p, p.variants![2], 'eur')).toBe(200)
+  })
+
+  it('computes the GBP range and "from" price', () => {
+    expect(variantPriceRange(p, 'gbp')).toEqual({ min: 170, max: 230, varies: true })
+    expect(priceFrom(p, 'gbp')).toBe(170)
+  })
+
+  it('uses the GBP sale price for variants without a GBP override', () => {
+    const now = new Date('2026-06-15T12:00:00Z').getTime()
+    const sale: Product = { ...gbpProduct, variants: [{ size: 'M' }, { size: 'L', priceGbp: 190 }] }
+    expect(variantPriceRange(sale, 'gbp', now)).toEqual({ min: 130, max: 190, varies: true })
+  })
+})
+
+describe('hasPriceIn', () => {
+  it('is true when the product has a price in that currency', () => {
+    expect(hasPriceIn(gbpProduct, 'gbp')).toBe(true)
+    expect(hasPriceIn(baseProduct, 'eur')).toBe(true)
+  })
+
+  it('is false without a GBP price', () => {
+    expect(hasPriceIn(baseProduct, 'gbp')).toBe(false)
+  })
+
+  it('is false when any variant has no GBP price', () => {
+    const p: Product = { ...baseProduct, variants: [{ size: 'S', priceGbp: 150 }, { size: 'M' }] }
+    expect(hasPriceIn(p, 'gbp')).toBe(false)
+  })
+
+  it('is true when every variant has its own GBP price', () => {
+    const p: Product = { ...baseProduct, variants: [{ size: 'S', priceGbp: 150 }, { size: 'M', priceGbp: 160 }] }
+    expect(hasPriceIn(p, 'gbp')).toBe(true)
+  })
+
+  it('needs a GBP starting price for made-to-order pieces', () => {
+    expect(hasPriceIn(madeToOrderProduct, 'gbp')).toBe(false)
+    expect(hasPriceIn({ ...madeToOrderProduct, priceGbp: 170 }, 'gbp')).toBe(true)
+  })
+})
+
+describe('choiceDelta', () => {
+  it('reads the added price per currency', () => {
+    const c = { label: 'Real Leather', priceDelta: 80, priceDeltaGbp: 70 }
+    expect(choiceDelta(c, 'eur')).toBe(80)
+    expect(choiceDelta(c, 'gbp')).toBe(70)
+  })
+
+  it('is 0 when not set', () => {
+    expect(choiceDelta({ label: 'Black' }, 'gbp')).toBe(0)
   })
 })
 

@@ -30,7 +30,7 @@ Mark `STRIPE_SECRET_KEY` and `RESEND_API_KEY` as **Secret**. Add them to both
 | `RESEND_API_KEY` | yes (forms) | `re_…` | |
 | `CONTACT_TO_EMAIL` | yes (forms) | `info@kelderro.nl` | Where enquiries/requests land. |
 | `CONTACT_FROM_EMAIL` | yes (forms) | `shop@pxssyinferno.com` | Must be a **verified** Resend sender on your domain. |
-| `STRIPE_CURRENCY` | no | `eur` | Default `eur`. |
+| `STRIPE_CURRENCY` | no | `eur` | Fallback only (`eur` or `gbp`). The shopper's €/£ choice is sent with each checkout and wins. |
 | `SITE_URL` | no | `https://pxssyinferno.com` | Used for success/cancel URLs; falls back to the request origin. |
 | `ALLOWED_SHIPPING_COUNTRIES` | no | `NL,BE,DE,FR,GB,US,CA,AU` | Countries offered at checkout. |
 | `SANITY_PROJECT_ID` / `SANITY_DATASET` / `SANITY_API_VERSION` | no | — | Defaults baked in (`whp8gyuq` / `production` / `2026-03-01`). |
@@ -56,6 +56,36 @@ Stripe automatically offers every method you enable in the Dashboard.
    show on supported devices/browsers.
 6. Going live: enable the same methods in live mode, complete account activation,
    and replace the key with `sk_live_…`.
+
+### EUR and GBP (multi-currency settlement)
+
+Shoppers pick **€** or **£** in the header. The Checkout Session is created in
+that currency, so Stripe puts the money in the matching balance: £ payments in
+the GBP balance, € payments in the EUR balance. With one bank account per
+currency, each balance pays out to its own account, with no conversion.
+
+- **Prices are set by hand in Sanity**, per product: `Regular Price (£)`,
+  `Sale / Discounted Price (£)`, the variant `Price for this variant (£)` and the
+  made-to-order `Added Price (£)`. Nothing is converted from €.
+- A product **without a £ price** shows "Not available in £" in £ mode and
+  cannot be added to the cart or checked out in £ (the function returns 409).
+- The sale start/end dates apply to both currencies.
+- Made-to-order estimates are shown in £ when the piece has a £ starting price
+  and the chosen options have £ amounts; otherwise in €. The request email says
+  which currency the shopper saw.
+
+One-off Stripe Dashboard setup:
+
+1. In the Dashboard settings for bank accounts and currencies, enable
+   multi-currency settlement and add **GBP** as a settlement currency.
+2. Attach the UK **GBP** bank account; keep the Portuguese **EUR** account as the
+   EUR/default account. Both must be in the name of the same legal entity as the
+   Stripe account. Check that a GBP account is supported for the account's
+   country and look at the settlement and payout fees.
+3. Leave **Adaptive Pricing off** (payment settings). It
+   converts to the customer's local currency and would defeat the split.
+4. Test mode: pay once in £ and once in €, then check **Balances**: the £
+   payment should be in the GBP balance and the € one in the EUR balance.
 
 ### Optional but recommended: stock & fulfilment via webhook
 Payment success currently just shows `/checkout/success` and clears the cart.
@@ -113,5 +143,5 @@ Open the printed URL, add a ready-to-ship product to the cart, and hit checkout.
 
 `functions/api/checkout.js` re-computes prices from Sanity and is the **only**
 authority on what a customer is charged (the browser's price is ignored). Its
-sale-window logic mirrors `src/lib/catalog.ts` → `effectivePrice()`. If you
-change pricing rules, change both.
+sale-window and per-currency logic mirrors `src/lib/catalog.ts` →
+`effectivePrice()` / `variantPrice()`. If you change pricing rules, change both.

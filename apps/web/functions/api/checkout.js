@@ -8,7 +8,13 @@
  * SECURITY: the price the browser sends is IGNORED. Prices are re-fetched from
  * Sanity and computed here. This is the only place that decides what a customer
  * is charged. The sale-window logic below mirrors `src/lib/catalog.ts`
- * (effectivePrice) — keep the two in sync.
+ * (effectivePrice / variantPrice) — keep the two in sync.
+ *
+ * CURRENCY: the browser sends `currency` ("eur" | "gbp"). It is allow-listed
+ * and the Checkout Session is created in that currency using the prices set by
+ * hand for it in Sanity (price / priceGbp, etc.). Stripe settles each currency
+ * into its own balance (EUR / GBP bank account), so there is no conversion.
+ * Do NOT enable Stripe Adaptive Pricing: it would convert back and defeat that.
  *
  * Required env (Cloudflare Pages > Settings > Environment variables / Secrets):
  *   STRIPE_SECRET_KEY            (secret) e.g. sk_test_...
@@ -16,7 +22,7 @@
  *   SANITY_PROJECT_ID            default "whp8gyuq"
  *   SANITY_DATASET               default "production"
  *   SANITY_API_VERSION           default "2026-03-01"
- *   STRIPE_CURRENCY              default "eur"
+ *   STRIPE_CURRENCY              default "eur"; only used when the request has no valid currency
  *   SITE_URL                     e.g. https://pxssyinferno.com (else request origin)
  *   ALLOWED_SHIPPING_COUNTRIES   CSV, default "NL,BE,DE,FR,GB,US,CA,AU"
  */
@@ -27,14 +33,32 @@ const json = (data, status = 200) =>
     headers: { 'content-type': 'application/json' },
   })
 
+const CURRENCIES = ['eur', 'gbp']
+
+/** Allow-list the requested currency; anything else falls back to the default. */
+function resolveCurrency(requested, fallback) {
+  const r = String(requested || '').toLowerCase()
+  if (CURRENCIES.includes(r)) return r
+  const f = String(fallback || '').toLowerCase()
+  return CURRENCIES.includes(f) ? f : 'eur'
+}
+
 /** Mirror of src/lib/catalog.ts effectivePrice(). */
-function effectivePrice(p, now = Date.now()) {
-  const base = Number(p?.price) || 0
-  const sale = Number(p?.salePrice)
+function effectivePrice(p, currency = 'eur', now = Date.now()) {
+  const gbp = currency === 'gbp'
+  const base = Number(gbp ? p?.priceGbp : p?.price) || 0
+  const sale = Number(gbp ? p?.salePriceGbp : p?.salePrice)
   if (!sale || sale <= 0 || sale >= base) return base
   const startOk = !p?.saleStartDate || new Date(p.saleStartDate).getTime() <= now
   const endOk = !p?.saleEndDate || new Date(p.saleEndDate).getTime() >= now
   return startOk && endOk ? sale : base
+}
+
+/** Mirror of src/lib/catalog.ts variantPrice(). 0 = no price in that currency. */
+function variantPrice(p, v, currency = 'eur', now = Date.now()) {
+  const vp = Number(currency === 'gbp' ? v?.priceGbp : v?.price)
+  if (vp && vp > 0) return vp
+  return effectivePrice(p, currency, now)
 }
 
 function totalStock(p) {
@@ -50,7 +74,7 @@ async function fetchProductsByIds(env, ids) {
   if (!apiVersion.startsWith('v')) apiVersion = 'v' + apiVersion
 
   const groq = `*[_type == "product" && _id in $ids]{
-    _id, title, price, salePrice, saleStartDate, saleEndDate,
+    _id, title, price, salePrice, priceGbp, salePriceGbp, saleStartDate, saleEndDate,
     isReadyToShip, variants, stock, "image": images[0].asset->url
   }`
 
@@ -104,7 +128,7 @@ export async function onRequestPost({ request, env }) {
   }
 
   const byId = new Map(products.map((p) => [p._id, p]))
-  const currency = (env.STRIPE_CURRENCY || 'eur').toLowerCase()
+  const currency = resolveCurrency(payload?.currency, env.STRIPE_CURRENCY)
 
   const lineItems = []
   for (const w of wanted) {
@@ -131,10 +155,15 @@ export async function onRequestPost({ request, env }) {
       return json({ error: `"${p.title}" is sold out.` }, 409)
     }
     // Per-variant price override wins; otherwise the product's sale-aware price.
-    const unitPrice =
-      matchedVariant && Number(matchedVariant.price) > 0 ? Number(matchedVariant.price) : effectivePrice(p)
+    const unitPrice = matchedVariant ? variantPrice(p, matchedVariant, currency) : effectivePrice(p, currency)
     const unitAmount = Math.round(unitPrice * 100)
     if (unitAmount <= 0) {
+      if (currency === 'gbp') {
+        return json(
+          { error: `"${p.title}" is not available in £. Remove it or switch to €.`, code: 'currency_unavailable' },
+          409
+        )
+      }
       return json({ error: `"${p.title}" has an invalid price.` }, 409)
     }
     lineItems.push({
@@ -159,6 +188,7 @@ export async function onRequestPost({ request, env }) {
   form.set('mode', 'payment')
   form.set('success_url', `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`)
   form.set('cancel_url', `${origin}/checkout/cancel`)
+  form.set('metadata[currency]', currency)
   form.set('billing_address_collection', 'auto')
   form.set('phone_number_collection[enabled]', 'true')
   countries.forEach((c, i) => form.set(`shipping_address_collection[allowed_countries][${i}]`, c))

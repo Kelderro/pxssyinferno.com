@@ -5,19 +5,36 @@
  * in plain JS, inside `functions/api/checkout.js`. If you change how the
  * effective/sale price is calculated here, update it there too. The checkout
  * function is the authoritative source of truth for what a customer is charged.
+ *
+ * Prices are set manually per currency in Sanity (no FX conversion):
+ *   EUR: price / salePrice / variants[].price / choices[].priceDelta
+ *   GBP: priceGbp / salePriceGbp / variants[].priceGbp / choices[].priceDeltaGbp
+ * The sale window (saleStartDate / saleEndDate) is shared by both currencies.
  */
+
+export const CURRENCIES = ['eur', 'gbp'] as const
+export type Currency = (typeof CURRENCIES)[number]
+export const DEFAULT_CURRENCY: Currency = 'eur'
+
+export function isCurrency(c: unknown): c is Currency {
+  return typeof c === 'string' && (CURRENCIES as readonly string[]).includes(c)
+}
+
+export const CURRENCY_SYMBOL: Record<Currency, string> = { eur: '€', gbp: '£' }
 
 export type Variant = {
   color?: string
   size?: string
   stock?: number
   price?: number
+  priceGbp?: number
   swatchColor?: string
 }
 
 export type CustomChoice = {
   label: string
   priceDelta?: number
+  priceDeltaGbp?: number
   swatchColor?: string
 }
 
@@ -34,6 +51,8 @@ export type Product = {
   slug?: { current: string }
   price: number
   salePrice?: number
+  priceGbp?: number
+  salePriceGbp?: number
   saleStartDate?: string
   saleEndDate?: string
   category?: string
@@ -57,6 +76,8 @@ export const PRODUCT_FIELDS = `
   slug,
   price,
   salePrice,
+  priceGbp,
+  salePriceGbp,
   saleStartDate,
   saleEndDate,
   category,
@@ -74,6 +95,8 @@ export const PRODUCT_DETAIL_FIELDS = `
   slug,
   price,
   salePrice,
+  priceGbp,
+  salePriceGbp,
   saleStartDate,
   saleEndDate,
   category,
@@ -90,49 +113,84 @@ export function isCustom(p: Product): boolean {
   return p?.isReadyToShip === false
 }
 
-/** Price after applying an active sale window. Falls back to regular price. */
-export function effectivePrice(p: Product, now: number = Date.now()): number {
-  const base = Number(p?.price) || 0
-  const sale = Number(p?.salePrice)
+/** Regular (non-sale) product price in the given currency. 0 if not set. */
+export function basePrice(p: Product, currency: Currency = DEFAULT_CURRENCY): number {
+  return Number(currency === 'gbp' ? p?.priceGbp : p?.price) || 0
+}
+
+/**
+ * Price after applying an active sale window, in the given currency.
+ * Falls back to the regular price. Returns 0 when the product has no price in
+ * that currency. KEEP IN SYNC with functions/api/checkout.js.
+ */
+export function effectivePrice(
+  p: Product,
+  currency: Currency = DEFAULT_CURRENCY,
+  now: number = Date.now()
+): number {
+  const base = basePrice(p, currency)
+  const sale = Number(currency === 'gbp' ? p?.salePriceGbp : p?.salePrice)
   if (!sale || sale <= 0 || sale >= base) return base
   const startOk = !p?.saleStartDate || new Date(p.saleStartDate).getTime() <= now
   const endOk = !p?.saleEndDate || new Date(p.saleEndDate).getTime() >= now
   return startOk && endOk ? sale : base
 }
 
-export function isOnSale(p: Product, now: number = Date.now()): boolean {
-  return effectivePrice(p, now) < (Number(p?.price) || 0)
+export function isOnSale(p: Product, currency: Currency = DEFAULT_CURRENCY, now: number = Date.now()): boolean {
+  return effectivePrice(p, currency, now) < basePrice(p, currency)
 }
 
 /**
- * Price of a single variant: its own override if set, else the product's
- * effective (sale-aware) price. KEEP IN SYNC with functions/api/checkout.js.
+ * Price of a single variant: its own override for that currency if set, else
+ * the product's effective (sale-aware) price. KEEP IN SYNC with
+ * functions/api/checkout.js.
  */
-export function variantPrice(p: Product, v: Variant, now: number = Date.now()): number {
-  const vp = Number(v?.price)
+export function variantPrice(
+  p: Product,
+  v: Variant,
+  currency: Currency = DEFAULT_CURRENCY,
+  now: number = Date.now()
+): number {
+  const vp = Number(currency === 'gbp' ? v?.priceGbp : v?.price)
   if (vp && vp > 0) return vp
-  return effectivePrice(p, now)
+  return effectivePrice(p, currency, now)
 }
 
 /** Min / max price across a product's variants (for "From €X" display). */
 export function variantPriceRange(
   p: Product,
+  currency: Currency = DEFAULT_CURRENCY,
   now: number = Date.now()
 ): { min: number; max: number; varies: boolean } {
   const vs = Array.isArray(p?.variants) ? p.variants : []
   if (!vs.length) {
-    const e = effectivePrice(p, now)
+    const e = effectivePrice(p, currency, now)
     return { min: e, max: e, varies: false }
   }
-  const prices = vs.map((v) => variantPrice(p, v, now))
+  const prices = vs.map((v) => variantPrice(p, v, currency, now))
   const min = Math.min(...prices)
   const max = Math.max(...prices)
   return { min, max, varies: max > min }
 }
 
 /** Lowest sellable price for a product (the "From" price on cards). */
-export function priceFrom(p: Product, now: number = Date.now()): number {
-  return variantPriceRange(p, now).min
+export function priceFrom(p: Product, currency: Currency = DEFAULT_CURRENCY, now: number = Date.now()): number {
+  return variantPriceRange(p, currency, now).min
+}
+
+/**
+ * Whether the product can be shown and sold in this currency: the product (and
+ * every variant) resolves to a positive price. Made-to-order pieces need a
+ * starting price in that currency.
+ */
+export function hasPriceIn(p: Product, currency: Currency, now: number = Date.now()): boolean {
+  if (isCustom(p)) return basePrice(p, currency) > 0
+  return variantPriceRange(p, currency, now).min > 0
+}
+
+/** Added price of a made-to-order choice in this currency (0 if not set). */
+export function choiceDelta(c: CustomChoice, currency: Currency = DEFAULT_CURRENCY): number {
+  return Number(currency === 'gbp' ? c?.priceDeltaGbp : c?.priceDelta) || 0
 }
 
 /** Distinct, in-order sizes derived from the variants array. */
@@ -178,10 +236,26 @@ export function isSoldOut(p: Product): boolean {
   return totalStock(p) <= 0
 }
 
-/** "€340" for whole euros, "€340.50" otherwise. */
-export function formatEUR(n: number | string | undefined | null): string {
+const formatters: Partial<Record<string, Intl.NumberFormat>> = {}
+
+/**
+ * "€340" / "£340" for whole amounts, "€340.50" otherwise, using
+ * Intl.NumberFormat. Thousands are grouped: "€1,200".
+ */
+export function formatPrice(
+  n: number | string | undefined | null,
+  currency: Currency = DEFAULT_CURRENCY
+): string {
   const num = Number(n) || 0
-  return '€' + (Number.isInteger(num) ? String(num) : num.toFixed(2))
+  const digits = Number.isInteger(num) ? 0 : 2
+  const key = currency + digits
+  const fmt = (formatters[key] ??= new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }))
+  return fmt.format(num)
 }
 
 /** Display labels for the category slugs stored on products. */

@@ -17,7 +17,17 @@ const escapeHtml = (s) =>
   )
 
 const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || ''))
-const eur = (n) => '€' + (Number.isInteger(Number(n)) ? String(Number(n)) : Number(n).toFixed(2))
+// Mirrors formatPrice() in src/lib/catalog.ts
+const formatPrice = (n, currency) => {
+  const num = Number(n) || 0
+  const digits = Number.isInteger(num) ? 0 : 2
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: currency === 'gbp' ? 'GBP' : 'EUR',
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(num)
+}
 
 async function sendEmail(env, { subject, html, text, replyTo }) {
   const res = await fetch('https://api.resend.com/emails', {
@@ -63,6 +73,9 @@ export async function onRequestPost({ request, env }) {
   const productSlug = String(data?.productSlug || '').trim()
   const options = Array.isArray(data?.options) ? data.options : []
   const estimatedTotal = Number(data?.estimatedTotal) || 0
+  // Currency the shopper saw the (indicative) estimate in; allow-listed
+  const currency = String(data?.currency || '').toLowerCase() === 'gbp' ? 'gbp' : 'eur'
+  const money = (n) => formatPrice(n, currency)
 
   if (!name || !isEmail(email)) {
     return json({ error: 'Please provide your name and a valid email.' }, 400)
@@ -83,7 +96,7 @@ export async function onRequestPost({ request, env }) {
   const subjectLine = `Custom request — ${productTitle} — ${name}`
 
   const optionsText = optionLines.length
-    ? optionLines.map((o) => `  • ${o.label}: ${o.value}${o.delta ? ` (+${eur(o.delta)})` : ''}`).join('\n')
+    ? optionLines.map((o) => `  • ${o.label}: ${o.value}${o.delta ? ` (+${money(o.delta)})` : ''}`).join('\n')
     : '  (none selected)'
 
   const text =
@@ -91,7 +104,7 @@ export async function onRequestPost({ request, env }) {
     `Product: ${productTitle}${productSlug ? ` (/products/${productSlug})` : ''}\n` +
     `Name: ${name}\nEmail: ${email}\nPhone: ${phone || '(none)'}\n\n` +
     `Selected options:\n${optionsText}\n\n` +
-    `Estimated total (indicative): ${eur(estimatedTotal)}\n\n` +
+    `Estimated total (indicative): ${money(estimatedTotal)}\n\n` +
     `Message:\n${message || '(none)'}\n`
 
   const optionsHtml = optionLines.length
@@ -99,7 +112,7 @@ export async function onRequestPost({ request, env }) {
         .map(
           (o) =>
             `<li><strong>${escapeHtml(o.label)}:</strong> ${escapeHtml(o.value)}` +
-            `${o.delta ? ` <em>(+${eur(o.delta)})</em>` : ''}</li>`
+            `${o.delta ? ` <em>(+${money(o.delta)})</em>` : ''}</li>`
         )
         .join('')}</ul>`
     : `<p>(none selected)</p>`
@@ -112,7 +125,7 @@ export async function onRequestPost({ request, env }) {
     `<strong>Email:</strong> ${escapeHtml(email)}<br>` +
     `<strong>Phone:</strong> ${escapeHtml(phone || '(none)')}</p>` +
     `<p><strong>Selected options:</strong></p>${optionsHtml}` +
-    `<p><strong>Estimated total (indicative):</strong> ${eur(estimatedTotal)}</p>` +
+    `<p><strong>Estimated total (indicative):</strong> ${money(estimatedTotal)}</p>` +
     `<p><strong>Message:</strong></p><p style="white-space:pre-wrap">${escapeHtml(message || '(none)')}</p>`
 
   try {

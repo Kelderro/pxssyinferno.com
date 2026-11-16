@@ -75,3 +75,18 @@
 .portable-text li {
   margin-bottom: 0.5rem;
 }
+
+/* Currency switch: prices are rendered for both currencies in [data-cur] groups
+   (see CardPrice.astro and the product page). The inline head script in
+   Layout.astro sets <html data-currency> before first paint, so only the
+   selected group shows. `contents` keeps the parent's flex layout. */
+[data-cur="eur"] {
+  display: contents;
+}
+[data-cur="gbp"],
+html[data-currency="gbp"] [data-cur="eur"] {
+  display: none;
+}
+html[data-currency="gbp"] [data-cur="gbp"] {
+  display: contents;
+}

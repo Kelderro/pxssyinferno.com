@@ -1,5 +1,10 @@
 import { defineType, defineField } from 'sanity'
 
+// Prices are set by hand per currency (no exchange-rate conversion). Shoppers
+// pick € or £ on the site and pay in that currency; a product without a £ price
+// shows "Not available in £" and cannot be bought in £.
+const money = (n: unknown, symbol: string) => (typeof n === 'number' ? `${symbol}${n}` : null)
+
 export const product = defineType({
   name: 'product',
   title: 'Products',
@@ -36,6 +41,32 @@ export const product = defineType({
         Rule.custom((salePrice, context) => {
           const doc = context.document as any
           if (salePrice && doc?.price && salePrice >= doc.price) {
+            return 'Sale price must be lower than regular price.'
+          }
+          return true
+        }),
+    }),
+    defineField({
+      name: 'priceGbp',
+      title: 'Regular Price (£)',
+      type: 'number',
+      description:
+        'Set by hand, not converted from the € price. Leave empty to not sell this product in £. ' +
+        'For made-to-order pieces this is the "From" / starting price in £.',
+      validation: (Rule) => Rule.positive(),
+    }),
+    defineField({
+      name: 'salePriceGbp',
+      title: 'Sale / Discounted Price (£)',
+      type: 'number',
+      description: 'Leave empty if the product is not on sale in £. Uses the same sale start/end dates as the € sale.',
+      validation: (Rule) =>
+        Rule.custom((salePriceGbp, context) => {
+          const doc = context.document as any
+          if (salePriceGbp && !doc?.priceGbp) {
+            return 'Set a regular £ price before adding a £ sale price.'
+          }
+          if (salePriceGbp && doc?.priceGbp && salePriceGbp >= doc.priceGbp) {
             return 'Sale price must be lower than regular price.'
           }
           return true
@@ -127,6 +158,24 @@ export const product = defineType({
               validation: (Rule) => Rule.positive(),
             },
             {
+              name: 'priceGbp',
+              title: 'Price for this variant (£)',
+              type: 'number',
+              description:
+                'Optional. Same as the € variant price, but in £. Leave empty to use the product £ price above.',
+              validation: (Rule) => [
+                Rule.positive(),
+                Rule.custom((priceGbp, context) => {
+                  const variant = context.parent as any
+                  const doc = context.document as any
+                  if (variant?.price && !priceGbp && doc?.priceGbp) {
+                    return 'This variant has its own € price but no £ price, so £ shoppers pay the product £ price.'
+                  }
+                  return true
+                }).warning(),
+              ],
+            },
+            {
               name: 'stock',
               title: 'Stock Quantity',
               type: 'number',
@@ -139,11 +188,13 @@ export const product = defineType({
               size: 'size',
               stock: 'stock',
               price: 'price',
+              priceGbp: 'priceGbp',
             },
-            prepare({ color, size, stock, price }) {
+            prepare({ color, size, stock, price, priceGbp }) {
+              const prices = [money(price, '€'), money(priceGbp, '£')].filter(Boolean).join(' / ')
               return {
                 title: `${color ?? 'Default'} / Size: ${size ?? 'OS'}`,
-                subtitle: `${price ? '€' + price + ' · ' : ''}Stock: ${stock ?? 0}`,
+                subtitle: `${prices ? prices + ' · ' : ''}Stock: ${stock ?? 0}`,
               }
             },
           },
@@ -255,6 +306,14 @@ export const product = defineType({
                       description: 'Amount this choice adds to the starting price. Use 0 for no change.',
                     },
                     {
+                      name: 'priceDeltaGbp',
+                      title: 'Added Price (£)',
+                      type: 'number',
+                      description:
+                        'Amount this choice adds to the £ starting price. Use 0 for no change. ' +
+                        'If left empty while the € amount is set, the £ estimate falls back to €.',
+                    },
+                    {
                       name: 'swatchColor',
                       title: 'Swatch Colour (hex, e.g. #8b0000)',
                       type: 'string',
@@ -262,11 +321,14 @@ export const product = defineType({
                     },
                   ],
                   preview: {
-                    select: { label: 'label', priceDelta: 'priceDelta' },
-                    prepare({ label, priceDelta }) {
+                    select: { label: 'label', priceDelta: 'priceDelta', priceDeltaGbp: 'priceDeltaGbp' },
+                    prepare({ label, priceDelta, priceDeltaGbp }) {
+                      const added = [priceDelta ? `+ €${priceDelta}` : null, priceDeltaGbp ? `+ £${priceDeltaGbp}` : null]
+                        .filter(Boolean)
+                        .join(' / ')
                       return {
                         title: label || 'Choice',
-                        subtitle: priceDelta ? `+ €${priceDelta}` : 'No added cost',
+                        subtitle: added || 'No added cost',
                       }
                     },
                   },
@@ -315,11 +377,12 @@ export const product = defineType({
       media: 'images.0',
       isReadyToShip: 'isReadyToShip',
       price: 'price',
+      priceGbp: 'priceGbp',
     },
-    prepare({ title, media, isReadyToShip, price }) {
+    prepare({ title, media, isReadyToShip, price, priceGbp }) {
       return {
         title: title || 'Untitled product',
-        subtitle: `${isReadyToShip === false ? 'Made to order · from ' : ''}€${price ?? '—'}`,
+        subtitle: `${isReadyToShip === false ? 'Made to order · from ' : ''}€${price ?? '—'} / £${priceGbp ?? '—'}`,
         media,
       }
     },

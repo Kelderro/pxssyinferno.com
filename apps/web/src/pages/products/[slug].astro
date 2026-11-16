@@ -4,13 +4,17 @@ import { sanityClient, urlFor } from '../../lib/sanity'
 import { PortableText } from '@portabletext/astro'
 import {
   PRODUCT_DETAIL_FIELDS,
+  CURRENCIES,
+  basePrice,
   effectivePrice,
   variantPriceRange,
+  hasPriceIn,
+  choiceDelta,
   isOnSale,
   isSoldOut,
   isCustom,
   productSizes,
-  formatEUR,
+  formatPrice,
   categoryLabel,
   type Product,
 } from '../../lib/catalog'
@@ -40,15 +44,41 @@ if (!product) {
 }
 
 const custom = isCustom(product)
-const price = effectivePrice(product)
-const range = variantPriceRange(product)
-const onSale = isOnSale(product)
 const soldOut = isSoldOut(product)
 const sizes = productSizes(product)
 const variants = Array.isArray(product.variants)
-  ? product.variants.map((v: any) => ({ color: v?.color || '', size: v?.size || '', stock: Number(v?.stock) || 0, swatchColor: v?.swatchColor || '', price: Number(v?.price) || 0 }))
+  ? product.variants.map((v: any) => ({
+      color: v?.color || '', size: v?.size || '', stock: Number(v?.stock) || 0, swatchColor: v?.swatchColor || '',
+      price: Number(v?.price) || 0, priceGbp: Number(v?.priceGbp) || 0,
+    }))
   : []
-const basePrice = Number(product.price) || 0
+
+// Everything price-related, per currency. GBP prices are set manually in Sanity;
+// a product without them shows "Not available in £".
+const pricing = CURRENCIES.map((currency) => {
+  const range = variantPriceRange(product, currency)
+  const available = hasPriceIn(product, currency)
+  const base = basePrice(product, currency)
+  const fmt = (n: number) => formatPrice(n, currency)
+  return {
+    currency,
+    available,
+    base,
+    showSale: available && isOnSale(product, currency) && !soldOut && !custom && !range.varies,
+    label: !available
+      ? custom
+        ? `From ${formatPrice(basePrice(product, 'eur'), 'eur')}` // quote is made by hand; estimate stays in €
+        : 'Not available in £'
+      : custom
+        ? `From ${fmt(base)}`
+        : range.varies
+          ? `${fmt(range.min)} – ${fmt(range.max)}`
+          : fmt(range.min),
+  }
+})
+// Product price (sale-aware) per currency, used when a variant has no override
+const currentPrice = { eur: effectivePrice(product, 'eur'), gbp: effectivePrice(product, 'gbp') }
+const basePrices = { eur: basePrice(product, 'eur'), gbp: basePrice(product, 'gbp') }
 
 // Pre-build image URL for the client-side cart script
 const mainImageUrl =
@@ -173,21 +203,24 @@ const productMeta = {
             {product.title}
           </h1>
 
-          <!-- Price Display -->
+          <!-- Price Display (one group per currency; CSS shows the selected one) -->
           <div class="mt-4 text-2xl font-extrabold flex items-center gap-3 font-mono">
-            <span id="product-price" class={soldOut ? 'text-brand-muted' : 'text-white'}>
-              {custom
-                ? `From ${formatEUR(basePrice)}`
-                : range.varies
-                  ? `${formatEUR(range.min)} – ${formatEUR(range.max)}`
-                  : formatEUR(range.min)}
-            </span>
-            {onSale && !soldOut && !custom && !range.varies && (
-              <span class="line-through text-brand-muted text-base">{formatEUR(product.price)}</span>
-            )}
-            {onSale && !soldOut && !custom && !range.varies && (
-              <span class="text-xs bg-brand-red text-black font-sans font-black uppercase px-2 py-0.5">SALE</span>
-            )}
+            {pricing.map((pr) => (
+              <span data-cur={pr.currency}>
+                <span
+                  data-product-price={pr.currency}
+                  class:list={[soldOut || !pr.available ? 'text-brand-muted' : 'text-white', !pr.available && 'text-base font-sans']}
+                >
+                  {pr.label}
+                </span>
+                {pr.showSale && (
+                  <span class="line-through text-brand-muted text-base">{formatPrice(pr.base, pr.currency)}</span>
+                )}
+                {pr.showSale && (
+                  <span class="text-xs bg-brand-red text-black font-sans font-black uppercase px-2 py-0.5">SALE</span>
+                )}
+              </span>
+            ))}
           </div>
         </div>
 
@@ -235,8 +268,13 @@ const productMeta = {
                     >
                       <option value="">Select…</option>
                       {group.choices && group.choices.map((c: any) => (
-                        <option value={c.label} data-delta={Number(c.priceDelta) || 0}>
-                          {c.label}{Number(c.priceDelta) > 0 ? ` (+${formatEUR(c.priceDelta)})` : ''}
+                        <option
+                          value={c.label}
+                          data-choice-label={c.label}
+                          data-delta-eur={choiceDelta(c, 'eur')}
+                          data-delta-gbp={c?.priceDeltaGbp == null ? '' : choiceDelta(c, 'gbp')}
+                        >
+                          {c.label}{choiceDelta(c, 'eur') > 0 ? ` (+${formatPrice(choiceDelta(c, 'eur'), 'eur')})` : ''}
                         </option>
                       ))}
                     </select>
@@ -260,7 +298,7 @@ const productMeta = {
             <!-- Estimate -->
             <div class="flex justify-between items-center border-t border-brand-border pt-4 text-sm font-bold uppercase tracking-wider">
               <span class="text-brand-muted">Estimated total</span>
-              <span id="custom-estimate" class="text-white font-mono text-lg">{formatEUR(basePrice)}</span>
+              <span id="custom-estimate" class="text-white font-mono text-lg">{formatPrice(basePrices.eur, 'eur')}</span>
             </div>
             <p class="text-[10px] text-brand-muted uppercase tracking-widest -mt-3">
               Indicative only — final price confirmed in your quote.
@@ -410,7 +448,11 @@ const productMeta = {
 </style>
 
 <!-- Client-side Interactive Logic -->
-<script define:vars={{ custom, basePrice, currentPrice: price, mainImageUrl, productMeta, variants }}>
+<script define:vars={{ custom, basePrices, currentPrice, mainImageUrl, productMeta, variants }}>
+  const piCurrency = window.piCurrency
+  const CURRENCIES = ['eur', 'gbp']
+  const fmt = (n, c) => piCurrency.format(n, c)
+
   // 1. Thumbnail image switcher (shared)
   const mainImage = document.getElementById('main-product-image')
   document.querySelectorAll('.thumbnail-btn').forEach((btn) => {
@@ -424,7 +466,7 @@ const productMeta = {
     // ---------- READY-TO-SHIP: size -> colour, stock + price gated ----------
     const V = (Array.isArray(variants) ? variants : []).map((v) => ({
       color: v.color || '', size: v.size || '', stock: Number(v.stock) || 0,
-      price: Number(v.price) || 0, swatchColor: v.swatchColor || '',
+      prices: { eur: Number(v.price) || 0, gbp: Number(v.priceGbp) || 0 }, swatchColor: v.swatchColor || '',
     }))
     const hasVariants = V.length > 0
     const sizeList = [...new Set(V.map((v) => v.size).filter(Boolean))]
@@ -455,15 +497,14 @@ const productMeta = {
     const colorGroup = document.getElementById('color-group')
     const stockNote = document.getElementById('stock-note')
     const addBtn = document.getElementById('add-to-cart-btn')
-    const priceEl = document.getElementById('product-price')
-
-    const fmtEUR = (n) => '€' + (Number.isInteger(n) ? String(n) : n.toFixed(2))
-    const vPrice = (v) => (v.price > 0 ? v.price : Number(currentPrice))
+    // Mirrors variantPrice() in src/lib/catalog.ts. 0 = no price in that currency.
+    const vPrice = (v, c) => (v.prices[c] > 0 ? v.prices[c] : Number(currentPrice[c]) || 0)
 
     // null = a real choice the shopper has not made yet
     let selSize = !hasSizes ? '' : (sizeList.length === 1 ? sizeList[0] : null)
     let selColor = !hasColors ? '' : null
-    let comboPrice = Number(currentPrice)
+    // Price of the current selection in each currency (0 = not available)
+    let comboPrice = { eur: Number(currentPrice.eur) || 0, gbp: Number(currentPrice.gbp) || 0 }
 
     const activeCls = ['bg-brand-red', 'text-black', 'font-extrabold', 'border-brand-red']
     function setActiveSize(btn) {
@@ -482,23 +523,32 @@ const productMeta = {
     const ready = () => (!hasSizes || selSize !== null) && (!hasColors || selColor !== null)
 
     function refreshPrice() {
-      if (!hasVariants || !priceEl) return
+      if (!hasVariants) return
       const ms = V.filter((v) => matchSize(v) && matchColor(v))
       const src = ms.length ? ms : V
-      const ps = src.map(vPrice)
-      const min = Math.min(...ps), max = Math.max(...ps)
-      comboPrice = min
-      priceEl.textContent = min === max ? fmtEUR(min) : fmtEUR(min) + ' – ' + fmtEUR(max)
+      CURRENCIES.forEach((c) => {
+        const ps = src.map((v) => vPrice(v, c))
+        const min = Math.min(...ps), max = Math.max(...ps)
+        comboPrice[c] = min
+        const el = document.querySelector('[data-product-price="' + c + '"]')
+        if (el && min > 0) el.textContent = min === max ? fmt(min, c) : fmt(min, c) + ' – ' + fmt(max, c)
+      })
     }
 
     function update() {
       refreshPrice()
       const r = ready()
+      const priced = comboPrice[piCurrency.get()] > 0
       let stock = Infinity
       if (hasVariants) stock = r ? V.filter((v) => matchSize(v) && matchColor(v)).reduce((s, v) => s + v.stock, 0) : 0
-      if (addBtn) addBtn.disabled = !(!hasVariants || (r && stock > 0))
+      if (addBtn) addBtn.disabled = !priced || !(!hasVariants || (r && stock > 0))
       if (!stockNote) return
       stockNote.classList.remove('text-brand-red'); stockNote.classList.add('text-brand-muted')
+      if (!priced) {
+        stockNote.textContent = 'Not available in £ — switch to € to buy'
+        stockNote.classList.add('text-brand-red'); stockNote.classList.remove('text-brand-muted')
+        return
+      }
       if (!hasVariants) { stockNote.textContent = ''; return }
       if (!r) { stockNote.textContent = (hasSizes && selSize === null) ? 'Select a size' : 'Select a colour'; return }
       if (stock <= 0) { stockNote.textContent = 'This combination is out of stock'; stockNote.classList.add('text-brand-red'); stockNote.classList.remove('text-brand-muted') }
@@ -565,17 +615,26 @@ const productMeta = {
       update()
     }
 
+    window.addEventListener('currency-change', update)
+
     addBtn?.addEventListener('click', () => {
       if (addBtn.disabled) return
       let cart = []
       try { cart = JSON.parse(localStorage.getItem('pi_cart') || '[]') } catch {}
       const itemSize = hasSizes ? selSize : ''
       const itemColor = hasColors ? selColor : ''
-      const newItem = { id: productMeta._id, title: productMeta.title, price: comboPrice, image: mainImageUrl, size: itemSize, color: itemColor, quantity: 1 }
+      // Display prices only; /api/checkout re-fetches the real prices from Sanity.
+      const prices = { eur: comboPrice.eur, gbp: comboPrice.gbp > 0 ? comboPrice.gbp : null }
+      const newItem = { id: productMeta._id, title: productMeta.title, prices, image: mainImageUrl, size: itemSize, color: itemColor, quantity: 1 }
       const existingIdx = cart.findIndex((i) => i.id === newItem.id && (i.size || '') === itemSize && (i.color || '') === itemColor)
-      if (existingIdx > -1) cart[existingIdx].quantity += 1
-      else cart.push(newItem)
-      localStorage.setItem('pi_cart', JSON.stringify(cart))
+      if (existingIdx > -1) {
+        cart[existingIdx].quantity += 1
+        cart[existingIdx].prices = prices
+        delete cart[existingIdx].price
+      } else {
+        cart.push(newItem)
+      }
+      try { localStorage.setItem('pi_cart', JSON.stringify(cart)) } catch {}
       window.dispatchEvent(new CustomEvent('open-cart'))
     })
   } else {
@@ -584,22 +643,45 @@ const productMeta = {
     const qtyInput = document.getElementById('custom-qty')
     const estimateEl = document.getElementById('custom-estimate')
 
-    const fmt = (n) => '€' + (Number.isInteger(n) ? String(n) : n.toFixed(2))
+    const selectedOpts = () => selects.map((s) => s.selectedOptions && s.selectedOptions[0]).filter((o) => o && o.value)
+    const hasGbpDelta = (o) => o.dataset.deltaGbp !== ''
+    const delta = (o, c) => Number(c === 'gbp' ? o.dataset.deltaGbp : o.dataset.deltaEur) || 0
+    // £ only when this piece has a £ starting price; options without a £ amount stay in €
+    const labelCurrency = () => (piCurrency.get() === 'gbp' && Number(basePrices.gbp) > 0 ? 'gbp' : 'eur')
 
-    function computeEstimate() {
-      let perItem = Number(basePrice)
-      selects.forEach((s) => {
-        const opt = s.selectedOptions && s.selectedOptions[0]
-        perItem += Number(opt && opt.dataset.delta) || 0
-      })
+    // The estimate is in £ when the piece has a £ starting price and every chosen
+    // option that costs extra has a £ amount; otherwise it falls back to €.
+    // It is indicative only: the final quote is made by hand.
+    function estimateCurrency() {
+      if (labelCurrency() === 'eur') return 'eur'
+      return selectedOpts().every((o) => !(delta(o, 'eur') > 0) || hasGbpDelta(o)) ? 'gbp' : 'eur'
+    }
+
+    function computeEstimate(c) {
+      let perItem = Number(basePrices[c]) || 0
+      selectedOpts().forEach((o) => { perItem += delta(o, c) })
       let qty = parseInt(qtyInput && qtyInput.value, 10)
       if (!Number.isFinite(qty) || qty < 1) qty = 1
       return perItem * qty
     }
 
-    function refreshEstimate() {
-      if (estimateEl) estimateEl.textContent = fmt(computeEstimate())
+    function refreshOptionLabels() {
+      const lc = labelCurrency()
+      selects.forEach((s) => Array.from(s.options).forEach((o) => {
+        if (!o.value) return
+        const c = lc === 'gbp' && hasGbpDelta(o) ? 'gbp' : 'eur'
+        const d = delta(o, c)
+        o.textContent = o.dataset.choiceLabel + (d > 0 ? ' (+' + fmt(d, c) + ')' : '')
+      }))
     }
+
+    function refreshEstimate() {
+      const c = estimateCurrency()
+      if (estimateEl) estimateEl.textContent = fmt(computeEstimate(c), c)
+    }
+
+    window.addEventListener('currency-change', () => { refreshOptionLabels(); refreshEstimate() })
+    refreshOptionLabels()
 
     selects.forEach((s) => s.addEventListener('change', refreshEstimate))
     qtyInput?.addEventListener('input', refreshEstimate)
@@ -650,6 +732,7 @@ const productMeta = {
       }
 
       const fd = new FormData(form)
+      const currency = estimateCurrency()
       const options = selects
         .filter((s) => s.value)
         .map((s) => {
@@ -657,7 +740,7 @@ const productMeta = {
           return {
             label: s.getAttribute('data-label'),
             value: s.value,
-            priceDelta: Number(opt && opt.dataset.delta) || 0,
+            priceDelta: opt ? delta(opt, currency) : 0,
           }
         })
 
@@ -670,7 +753,8 @@ const productMeta = {
         message: fd.get('message'),
         company: fd.get('company'), // honeypot
         options,
-        estimatedTotal: computeEstimate(),
+        currency,
+        estimatedTotal: computeEstimate(currency),
       }
 
       submitBtn.disabled = true
