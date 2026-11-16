@@ -3,13 +3,14 @@
 This site now has a small backend implemented as **Cloudflare Pages Functions**
 (`apps/web/functions/api/*`). They call Stripe and Resend over plain `fetch`,
 so there are **no extra npm dependencies** and the static Astro build is
-unchanged. Three endpoints:
+unchanged. Four endpoints:
 
 | Route                 | Purpose                                                        |
 | --------------------- | -------------------------------------------------------------- |
 | `POST /api/checkout`        | Creates a Stripe Checkout Session for ready-to-ship cart items |
 | `POST /api/custom-request`  | Emails a made-to-order "request a quote" to you (no payment)   |
 | `POST /api/contact`         | Emails a general enquiry to you                                |
+| `POST /api/stripe-webhook`  | Reduces stock in Sanity after a paid checkout (called by Stripe) |
 
 > Why not store orders/requests in Sanity? The web client queries the
 > `production` dataset unauthenticated, i.e. it is **public-read**. Anything
@@ -21,12 +22,14 @@ unchanged. Three endpoints:
 ## 1. Environment variables
 
 Set these in **Cloudflare Pages → your project → Settings → Environment variables**.
-Mark `STRIPE_SECRET_KEY` and `RESEND_API_KEY` as **Secret**. Add them to both
+Mark `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SANITY_WRITE_TOKEN` and `RESEND_API_KEY` as **Secret**. Add them to both
 *Production* and *Preview* as needed.
 
 | Variable | Required | Example | Notes |
 | --- | --- | --- | --- |
 | `STRIPE_SECRET_KEY` | yes (checkout) | `sk_test_…` | Use a **test** key first (`sk_test_`). Swap to `sk_live_` to go live. |
+| `STRIPE_WEBHOOK_SECRET` | yes (stock) | `whsec_…` | Signing secret of the Stripe webhook endpoint (see *Stock* below). |
+| `SANITY_WRITE_TOKEN` | yes (stock) | `sk…` | Sanity API token with **Editor** rights. Server-only. |
 | `RESEND_API_KEY` | yes (forms) | `re_…` | |
 | `CONTACT_TO_EMAIL` | yes (forms) | `info@kelderro.nl` | Where enquiries/requests land. |
 | `CONTACT_FROM_EMAIL` | yes (forms) | `shop@pxssyinferno.com` | Must be a **verified** Resend sender on your domain. |
@@ -88,14 +91,44 @@ One-off Stripe Dashboard setup:
 4. Test mode: pay once in £ and once in €, then check **Balances**: the £
    payment should be in the GBP balance and the € one in the EUR balance.
 
-### Optional but recommended: stock & fulfilment via webhook
-Payment success currently just shows `/checkout/success` and clears the cart.
-Stock is **not** auto-decremented. If you want that (and a server-verified order
-record), add a `POST /api/stripe-webhook` function subscribed to
-`checkout.session.completed`, verify the signature with a
-`STRIPE_WEBHOOK_SECRET`, and write stock back to Sanity with a write token. I
-left this out to avoid storing order data in the public dataset — say the word
-and I'll wire a private store for it.
+### Stock: reduced automatically after payment (webhook)
+`POST /api/stripe-webhook` reduces stock in Sanity once Stripe confirms a
+payment, so a sold piece can't be bought again. It handles
+`checkout.session.completed` (when paid) and
+`checkout.session.async_payment_succeeded` (delayed methods), verifies Stripe's
+signature, and takes the bought quantity off the exact variant checkout sold
+(recorded as `variant_key`), or off the product's own stock if it has no variants. An open draft
+in the Studio is reduced too, so publishing it doesn't bring the old count back.
+
+Only stock is written to Sanity. Each handled session also leaves a small
+marker document `stripe-checkout.<session id>` (session id + timestamp only), so
+a webhook Stripe sends twice doesn't reduce stock twice. IDs with a `.` are not
+publicly readable, and no customer or order data is stored; that stays in Stripe.
+
+The site rebuild that shows "sold out" comes from the Sanity → Cloudflare
+deploy-hook webhook in `DEPLOY-CLOUDFLARE.md` ("Rebuild when content changes in
+Sanity"). Set that up too, or the stock changes but the page doesn't update until
+the next deploy (checkout still refuses an out-of-stock piece either way).
+
+One-off setup:
+
+1. **Sanity token.** [sanity.io/manage](https://www.sanity.io/manage) → this
+   project → **API → Tokens** → *Add API token*, permission **Editor**. Set it as
+   the `SANITY_WRITE_TOKEN` secret. Never put it in a `PUBLIC_` variable.
+2. **Stripe endpoint.** Stripe Dashboard → **Developers → Webhooks** → *Add
+   endpoint*:
+   - **URL:** `https://pxssyinferno.com/api/stripe-webhook`
+   - **Events:** `checkout.session.completed`, `checkout.session.async_payment_succeeded`
+   Copy the endpoint's **signing secret** (`whsec_…`) into `STRIPE_WEBHOOK_SECRET`.
+   Test mode and live mode have separate endpoints and secrets.
+3. **Check it.** Make a test purchase, then look at the endpoint in Stripe: the
+   event should show `200`, and the product's stock in the Studio should be one
+   lower. A failed delivery (`5xx`) is retried by Stripe automatically.
+
+Known gap: if two people pay for the last piece within the same few minutes,
+both payments go through (stock is only checked when checkout starts). Stock
+then goes below 0 in the Studio, which is the sign to refund one of them in
+Stripe. The piece still shows as sold out.
 
 ---
 
@@ -138,6 +171,17 @@ npx wrangler pages dev dist      # reads .dev.vars automatically
 
 Open the printed URL, add a ready-to-ship product to the cart, and hit checkout.
 
+To test the stock webhook locally, forward Stripe events with the
+[Stripe CLI](https://docs.stripe.com/stripe-cli) and put the `whsec_…` it prints
+in `.dev.vars` as `STRIPE_WEBHOOK_SECRET`:
+
+```sh
+stripe listen --forward-to localhost:8788/api/stripe-webhook
+```
+
+This writes to the real `production` dataset, so test with a product you can
+restore afterwards.
+
 ---
 
 ## 6. Keep in sync
@@ -146,3 +190,10 @@ Open the printed URL, add a ready-to-ship product to the cart, and hit checkout.
 authority on what a customer is charged (the browser's price is ignored). Its
 sale-window and per-currency logic mirrors `src/lib/catalog.ts` →
 `effectivePrice()` / `variantPrice()`. If you change pricing rules, change both.
+
+`functions/api/checkout.js` decides which variant is sold and records its Sanity
+`_key` as `variant_key` in the Stripe line-item metadata.
+`functions/api/stripe-webhook.js` reduces exactly that variant and never matches
+on colour or size itself, so a new variant property only needs handling in
+checkout. (Sessions from before `variant_key` existed fall back to a colour + size
+match; that fallback can be removed once they have all been paid or expired.)

@@ -61,6 +61,18 @@ function variantPrice(p, v, currency = 'eur', now = Date.now()) {
   return effectivePrice(p, currency, now)
 }
 
+/**
+ * The variant a cart line asks for. By Sanity _key when the cart sends one (an
+ * unknown key means the variant is gone: null, so the line is refused). Lines
+ * from carts saved before keys existed fall back to an exact size + colour match.
+ */
+function resolveVariant(p, w) {
+  const variants = Array.isArray(p?.variants) ? p.variants : []
+  if (!variants.length) return null
+  if (w.variantKey) return variants.find((v) => v?._key === w.variantKey) || null
+  return variants.find((v) => String(v?.size || '') === w.size && String(v?.color || '') === w.color) || null
+}
+
 function totalStock(p) {
   const vs = Array.isArray(p?.variants) ? p.variants : []
   if (vs.length) return vs.reduce((acc, v) => acc + (Number(v?.stock) || 0), 0)
@@ -114,7 +126,13 @@ export async function onRequestPost({ request, env }) {
     let qty = parseInt(it?.quantity, 10)
     if (!Number.isFinite(qty) || qty < 1) qty = 1
     if (qty > 99) qty = 99
-    wanted.push({ id, size: it?.size ? String(it.size) : '', color: it?.color ? String(it.color) : '', quantity: qty })
+    wanted.push({
+      id,
+      variantKey: it?.variantKey ? String(it.variantKey).slice(0, 64) : '',
+      size: it?.size ? String(it.size) : '',
+      color: it?.color ? String(it.color) : '',
+      quantity: qty,
+    })
   }
   if (wanted.length === 0) {
     return json({ error: 'No valid items in cart.' }, 400)
@@ -130,13 +148,19 @@ export async function onRequestPost({ request, env }) {
   const byId = new Map(products.map((p) => [p._id, p]))
   const currency = resolveCurrency(payload?.currency, env.STRIPE_CURRENCY)
 
-  // Total requested per product/variant, so stock also holds when the same piece is split over several lines
+  // Total requested per resolved variant, so stock also holds when the same piece is
+  // split over several lines (e.g. a keyed line plus one from a cart saved before keys).
   const requested = new Map()
-  for (const w of wanted) {
-    const key = JSON.stringify([w.id, w.size, w.color])
-    requested.set(key, (requested.get(key) || 0) + w.quantity)
+  const variantId = (w) => {
+    const p = byId.get(w.id)
+    const v = p && resolveVariant(p, w)
+    return v ? `${w.id}#${p.variants.indexOf(v)}` : ''
   }
-  const requestedFor = (w) => requested.get(JSON.stringify([w.id, w.size, w.color])) || 0
+  for (const w of wanted) {
+    const key = variantId(w)
+    if (key) requested.set(key, (requested.get(key) || 0) + w.quantity)
+  }
+  const requestedFor = (w) => requested.get(variantId(w)) || 0
   const requestedForProduct = (id) => wanted.filter((x) => x.id === id).reduce((s, x) => s + x.quantity, 0)
 
   const lineItems = []
@@ -147,12 +171,18 @@ export async function onRequestPost({ request, env }) {
       return json({ error: `"${p.title}" is made to order and cannot be bought directly.` }, 409)
     }
     const variants = Array.isArray(p.variants) ? p.variants : []
-    const comboLabel = [w.color, w.size].filter(Boolean).join(' / ')
     let matchedVariant = null
+    // Label and metadata from the variant itself once found; the browser's size/colour are only a fallback.
+    let size = w.size
+    let color = w.color
+    const label = () => [color, size].filter(Boolean).join(' / ')
     if (variants.length) {
-      matchedVariant = variants.find(
-        (v) => String(v?.size || '') === w.size && String(v?.color || '') === w.color
-      )
+      matchedVariant = resolveVariant(p, w)
+      if (matchedVariant) {
+        size = String(matchedVariant.size || '')
+        color = String(matchedVariant.color || '')
+      }
+      const comboLabel = label()
       const vStock = matchedVariant ? Number(matchedVariant.stock) || 0 : 0
       if (!matchedVariant || vStock < requestedFor(w)) {
         return json(
@@ -179,14 +209,17 @@ export async function onRequestPost({ request, env }) {
       }
       return json({ error: `"${p.title}" has an invalid price.` }, 409)
     }
+    const comboLabel = label()
     lineItems.push({
       name: comboLabel ? `${p.title} — ${comboLabel}` : p.title,
       image: p.image || '',
       unitAmount,
       quantity: w.quantity,
       productId: p._id,
-      size: w.size,
-      color: w.color,
+      // Exact variant sold, so /api/stripe-webhook reduces this one without re-matching attributes.
+      variantKey: matchedVariant?._key ? String(matchedVariant._key) : '',
+      size,
+      color,
     })
   }
 
@@ -215,6 +248,7 @@ export async function onRequestPost({ request, env }) {
     form.set(`line_items[${i}][price_data][product_data][name]`, li.name)
     if (li.image) form.set(`line_items[${i}][price_data][product_data][images][0]`, li.image)
     form.set(`line_items[${i}][price_data][product_data][metadata][product_id]`, li.productId)
+    if (li.variantKey) form.set(`line_items[${i}][price_data][product_data][metadata][variant_key]`, li.variantKey)
     if (li.size) form.set(`line_items[${i}][price_data][product_data][metadata][size]`, li.size)
     if (li.color) form.set(`line_items[${i}][price_data][product_data][metadata][color]`, li.color)
   })

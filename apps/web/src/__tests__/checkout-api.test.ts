@@ -12,8 +12,10 @@ const PRODUCTS = [
     priceGbp: 175,
     isReadyToShip: true,
     variants: [
-      { size: 'M', color: 'Black', stock: 3 },
-      { size: 'XL', color: 'Black', stock: 1, price: 250, priceGbp: 215 },
+      { _key: 'j-m', size: 'M', color: 'Black', stock: 3 },
+      { _key: 'j-xl', size: 'XL', color: 'Black', stock: 1, price: 250, priceGbp: 215 },
+      // Same size + colour as j-m (e.g. differs in a property added later); only the key tells them apart.
+      { _key: 'j-m2', size: 'M', color: 'Black', stock: 1, price: 230, priceGbp: 200 },
     ],
   },
   {
@@ -187,5 +189,58 @@ describe('POST /api/checkout stock', () => {
     const res = await post({ items: [{ id: 'eur-only', quantity: 1 }, { id: 'eur-only', quantity: 2 }] })
     expect(res.status).toBe(409)
     expect(stripeBody).toBeNull()
+  })
+})
+
+// Lines without variantKey (the stock tests above) exercise the size + colour fallback.
+describe('POST /api/checkout variant key', () => {
+  const meta = (i: number, k: string) => stripeBody?.get(`line_items[${i}][price_data][product_data][metadata][${k}]`)
+
+  it('sells the variant named by variantKey, and labels it from Sanity, not the browser', async () => {
+    // The browser's size is wrong on purpose: the key decides.
+    const res = await post({ items: [{ id: 'jacket', variantKey: 'j-xl', size: 'M', color: 'Black', quantity: 1 }] })
+    expect(res.status).toBe(200)
+    expect(lineItem(0).unitAmount).toBe(25000)
+    expect(meta(0, 'variant_key')).toBe('j-xl')
+    expect(meta(0, 'size')).toBe('XL')
+    expect(stripeBody?.get('line_items[0][price_data][product_data][name]')).toBe('Inferno Jacket — Black / XL')
+  })
+
+  it('tells apart two variants with the same size and colour', async () => {
+    const res = await post({ items: [{ id: 'jacket', variantKey: 'j-m2', size: 'M', color: 'Black', quantity: 1 }] })
+    expect(res.status).toBe(200)
+    expect(lineItem(0).unitAmount).toBe(23000)
+    expect(meta(0, 'variant_key')).toBe('j-m2')
+  })
+
+  it('checks stock of the keyed variant, not its size + colour lookalike', async () => {
+    // j-m has 3 in stock, j-m2 only 1.
+    const res = await post({ items: [{ id: 'jacket', variantKey: 'j-m2', size: 'M', color: 'Black', quantity: 2 }] })
+    expect(res.status).toBe(409)
+    expect(stripeBody).toBeNull()
+  })
+
+  it('refuses an unknown key instead of falling back to size + colour (409)', async () => {
+    const res = await post({ items: [{ id: 'jacket', variantKey: 'deleted', size: 'M', color: 'Black', quantity: 1 }] })
+    expect(res.status).toBe(409)
+    expect(stripeBody).toBeNull()
+  })
+
+  it('adds a keyed line and a keyless (old cart) line for the same variant before checking stock', async () => {
+    // j-xl has 1 in stock; the old line resolves to it via size + colour.
+    const res = await post({
+      items: [
+        { id: 'jacket', variantKey: 'j-xl', size: 'XL', color: 'Black', quantity: 1 },
+        { id: 'jacket', size: 'XL', color: 'Black', quantity: 1 },
+      ],
+    })
+    expect(res.status).toBe(409)
+    expect(stripeBody).toBeNull()
+  })
+
+  it('records the resolved key for a keyless (old cart) line too', async () => {
+    const res = await post({ items: [{ id: 'jacket', size: 'XL', color: 'Black', quantity: 1 }] })
+    expect(res.status).toBe(200)
+    expect(meta(0, 'variant_key')).toBe('j-xl')
   })
 })

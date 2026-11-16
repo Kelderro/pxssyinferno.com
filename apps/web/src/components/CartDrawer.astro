@@ -51,6 +51,8 @@ import CurrencyToggle from './CurrencyToggle.astro'
     image: string;
     size: string;
     color?: string;
+    /** Sanity _key of the exact variant; absent on lines saved before it existed. */
+    variantKey?: string;
     quantity: number;
     /** Stock when the item was added (build-time snapshot). Missing on older carts = no cap. */
     maxQty?: number;
@@ -211,7 +213,7 @@ import CurrencyToggle from './CurrencyToggle.astro'
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           currency: currency(),
-          items: cart.map((i) => ({ id: i.id, size: i.size || '', color: i.color || '', quantity: i.quantity })),
+          items: cart.map((i) => ({ id: i.id, variantKey: i.variantKey || '', size: i.size || '', color: i.color || '', quantity: i.quantity })),
         }),
       })
       const data = await res.json()

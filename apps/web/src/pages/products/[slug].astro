@@ -49,7 +49,7 @@ const soldOut = isSoldOut(product)
 const sizes = productSizes(product)
 const variants = Array.isArray(product.variants)
   ? product.variants.map((v: any) => ({
-      color: v?.color || '', size: v?.size || '', stock: Number(v?.stock) || 0, swatchColor: v?.swatchColor || '',
+      key: v?._key || '', color: v?.color || '', size: v?.size || '', stock: Number(v?.stock) || 0, swatchColor: v?.swatchColor || '',
       price: Number(v?.price) || 0, priceGbp: Number(v?.priceGbp) || 0,
     }))
   : []
@@ -474,7 +474,7 @@ const productMeta = {
   if (!custom) {
     // ---------- READY-TO-SHIP: size -> colour, stock + price gated ----------
     const V = (Array.isArray(variants) ? variants : []).map((v) => ({
-      color: v.color || '', size: v.size || '', stock: Number(v.stock) || 0,
+      key: v.key || '', color: v.color || '', size: v.size || '', stock: Number(v.stock) || 0,
       prices: { eur: Number(v.price) || 0, gbp: Number(v.priceGbp) || 0 }, swatchColor: v.swatchColor || '',
     }))
     const hasVariants = V.length > 0
@@ -530,11 +530,20 @@ const productMeta = {
     const sizeInStock = (size) => V.some((v) => v.size === size && v.stock > 0)
     const colorInStockForSize = (color, size) => V.some((v) => (!hasSizes || v.size === size) && v.color === color && v.stock > 0)
     const ready = () => (!hasSizes || selSize !== null) && (!hasColors || selColor !== null)
+    // The one variant a complete selection buys. Its _key goes on the cart line,
+    // so /api/checkout and the stock webhook never re-match on size/colour. If
+    // several variants share the selected attributes, take the first in stock.
+    function selVariant() {
+      if (!hasVariants || !ready()) return null
+      const ms = V.filter((v) => matchSize(v) && matchColor(v))
+      return ms.find((v) => v.stock > 0) || ms[0] || null
+    }
 
     function refreshPrice() {
       if (!hasVariants) return
+      const sel = selVariant()
       const ms = V.filter((v) => matchSize(v) && matchColor(v))
-      const src = ms.length ? ms : V
+      const src = sel ? [sel] : ms.length ? ms : V
       CURRENCIES.forEach((c) => {
         const ps = src.map((v) => vPrice(v, c))
         const min = Math.min(...ps), max = Math.max(...ps)
@@ -547,7 +556,8 @@ const productMeta = {
     // Stock for the current selection (build-time snapshot; /api/checkout re-checks live stock)
     function comboStock() {
       if (!hasVariants) return Number(productMeta.stock) || 0
-      return ready() ? V.filter((v) => matchSize(v) && matchColor(v)).reduce((s, v) => s + v.stock, 0) : 0
+      const sel = selVariant()
+      return sel ? sel.stock : 0
     }
 
     function readCart() {
@@ -556,8 +566,14 @@ const productMeta = {
         return Array.isArray(c) ? c : []
       } catch { return [] }
     }
-    const selKey = () => ({ size: hasSizes ? selSize : '', color: hasColors ? selColor : '' })
-    const isSelLine = (i, k) => i && i.id === productMeta._id && (i.size || '') === k.size && (i.color || '') === k.color
+    const selKey = () => ({ variantKey: selVariant()?.key || '', size: hasSizes ? selSize : '', color: hasColors ? selColor : '' })
+    // Same variant: by key when both have one. Lines saved before keys existed
+    // (no variantKey) still match on size + colour.
+    const isSelLine = (i, k) =>
+      i && i.id === productMeta._id &&
+      (i.variantKey && k.variantKey
+        ? i.variantKey === k.variantKey
+        : (i.size || '') === k.size && (i.color || '') === k.color)
     function inBasket() {
       const k = selKey()
       const line = readCart().find((i) => isSelLine(i, k))
@@ -653,17 +669,19 @@ const productMeta = {
     addBtn?.addEventListener('click', () => {
       if (addBtn.disabled) return
       const cart = readCart()
-      const { size: itemSize, color: itemColor } = selKey()
+      const sel = selKey()
+      const { variantKey, size: itemSize, color: itemColor } = sel
       const maxQty = comboStock()
       // Display prices only; /api/checkout re-fetches the real prices from Sanity.
       const prices = { eur: comboPrice.eur, gbp: comboPrice.gbp > 0 ? comboPrice.gbp : null }
-      const newItem = { id: productMeta._id, title: productMeta.title, prices, image: mainImageUrl, size: itemSize, color: itemColor, quantity: 1, maxQty }
-      const existingIdx = cart.findIndex((i) => isSelLine(i, selKey()))
+      const newItem = { id: productMeta._id, title: productMeta.title, prices, image: mainImageUrl, variantKey, size: itemSize, color: itemColor, quantity: 1, maxQty }
+      const existingIdx = cart.findIndex((i) => isSelLine(i, sel))
       if (existingIdx > -1) {
         const line = cart[existingIdx]
         line.quantity = Math.min((Number(line.quantity) || 0) + 1, maxQty)
         line.maxQty = maxQty
         line.prices = prices
+        if (variantKey) line.variantKey = variantKey // upgrade a line saved before keys existed
         delete line.price
       } else {
         cart.push(newItem)
