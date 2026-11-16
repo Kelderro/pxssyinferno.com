@@ -24,7 +24,7 @@
     "tailwindcss": "^4.3.4"
   },
   "devDependencies": {
-    "@playwright/test": "^1.65.0",
+    "@playwright/test": "^1.65.1",
     "@vitest/coverage-v8": "5.1.0",
     "vitest": "5.1.0"
   }
