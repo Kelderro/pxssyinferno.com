@@ -13,6 +13,14 @@ const {
   description = "Unique, hand-painted apparel drops and custom statement pieces." 
 } = Astro.props;
 const ogImage = Astro.props.image;
+
+// Single source for the header links (desktop nav + mobile menu)
+const navLinks = [
+  { href: '/shop', label: 'Shop' },
+  { href: '/faq', label: 'FAQ' },
+  { href: '/about', label: 'About' },
+  { href: '/contact', label: 'Contact' },
+];
 ---
 
 <!DOCTYPE html>
@@ -51,28 +59,64 @@ const ogImage = Astro.props.image;
 
     <!-- Header / Navbar -->
     <header class="border-b border-brand-border bg-brand-black/80 backdrop-blur-md sticky top-0 z-40">
-      <div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-        <a href="/" class="flex items-center gap-2 md:gap-3 text-lg md:text-3xl font-display tracking-wider text-brand-red uppercase hover:opacity-90 transition whitespace-nowrap">
-          <img src="/logo.png" alt="Pussy Inferno logo" width="44" height="44" class="h-11 w-11 object-contain" />
-          <span>PUSSY INFERNO</span>
+      <div class="max-w-7xl mx-auto px-4 md:px-6 h-20 flex items-center justify-between gap-3">
+        <a href="/" class="flex items-center gap-2 md:gap-3 min-w-0 text-base sm:text-lg md:text-3xl font-display tracking-wider text-brand-red uppercase hover:opacity-90 transition whitespace-nowrap">
+          <img src="/logo.png" alt="Pussy Inferno logo" width="44" height="44" class="h-11 w-11 shrink-0 object-contain" />
+          <span class="max-[370px]:sr-only">PUSSY INFERNO</span>
         </a>
 
-        <nav class="hidden md:flex items-center space-x-8 text-sm font-bold tracking-wider uppercase">
-          <a href="/shop" class="hover:text-brand-red transition">Shop</a>
-          <a href="/faq" class="hover:text-brand-red transition">FAQ</a>
-          <a href="/about" class="hover:text-brand-red transition">About</a>
-          <a href="/contact" class="hover:text-brand-red transition">Contact</a>
+        <nav aria-label="Main" class="hidden md:flex items-center space-x-8 text-sm font-bold tracking-wider uppercase">
+          {navLinks.map((link) => (
+            <a href={link.href} class="hover:text-brand-red transition">{link.label}</a>
+          ))}
         </nav>
 
-        <!-- Cart Trigger Button -->
-        <button 
-          id="open-cart-btn"
-          class="relative border border-brand-border px-4 py-2 text-xs font-bold uppercase tracking-widest hover:border-brand-red transition flex items-center gap-2"
-        >
-          <span>Cart</span>
-          <span id="cart-count-badge" class="bg-brand-red text-black px-1.5 py-0.5 rounded-full text-[10px] font-black">0</span>
-        </button>
+        <div class="flex items-center gap-2 shrink-0">
+          <!-- Cart Trigger Button -->
+          <button
+            id="open-cart-btn"
+            class="relative border border-brand-border px-3 md:px-4 h-11 text-xs font-bold uppercase tracking-widest hover:border-brand-red transition flex items-center gap-2"
+          >
+            <svg class="md:hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" aria-hidden="true">
+              <path d="M5 8h14l-1 13H6L5 8z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" />
+            </svg>
+            <span class="max-md:sr-only">Cart</span>
+            <span id="cart-count-badge" class="bg-brand-red text-black px-1.5 py-0.5 rounded-full text-[10px] font-black">0</span>
+          </button>
+
+          <!-- Mobile Menu Toggle -->
+          <button
+            id="mobile-menu-btn"
+            type="button"
+            class="md:hidden h-11 w-11 flex items-center justify-center border border-brand-border hover:border-brand-red transition"
+            aria-label="Menu"
+            aria-expanded="false"
+            aria-controls="mobile-menu"
+          >
+            <svg data-icon="open" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" aria-hidden="true">
+              <path d="M3 6h18M3 12h18M3 18h18" />
+            </svg>
+            <svg data-icon="close" class="hidden" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" aria-hidden="true">
+              <path d="M5 5l14 14M19 5L5 19" />
+            </svg>
+          </button>
+        </div>
       </div>
+
+      <!-- Mobile Menu Panel -->
+      <nav
+        id="mobile-menu"
+        aria-label="Main"
+        class="md:hidden hidden absolute inset-x-0 top-full border-b border-brand-border bg-brand-black shadow-2xl shadow-black"
+      >
+        <ul class="px-4 py-2 text-sm font-bold tracking-wider uppercase">
+          {navLinks.map((link) => (
+            <li class="border-b border-brand-border/50 last:border-b-0">
+              <a href={link.href} class="flex items-center min-h-12 hover:text-brand-red transition">{link.label}</a>
+            </li>
+          ))}
+        </ul>
+      </nav>
     </header>
 
     <!-- Dynamic Page Content -->
@@ -132,4 +176,43 @@ const ogImage = Astro.props.image;
   document.getElementById('open-cart-btn')?.addEventListener('click', () => {
     window.dispatchEvent(new CustomEvent('open-cart'))
   })
+
+  // Mobile menu: toggle, close on Escape / outside tap / link click / resize to desktop
+  const menuBtn = document.getElementById('mobile-menu-btn')
+  const menu = document.getElementById('mobile-menu')
+
+  if (menuBtn && menu) {
+    const setOpen = (open: boolean) => {
+      menu.classList.toggle('hidden', !open)
+      menuBtn.setAttribute('aria-expanded', String(open))
+      menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Menu')
+      menuBtn.querySelector('[data-icon="open"]')?.classList.toggle('hidden', open)
+      menuBtn.querySelector('[data-icon="close"]')?.classList.toggle('hidden', !open)
+    }
+    const isOpen = () => menuBtn.getAttribute('aria-expanded') === 'true'
+
+    menuBtn.addEventListener('click', () => setOpen(!isOpen()))
+
+    menu.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('a')) setOpen(false)
+    })
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isOpen()) {
+        setOpen(false)
+        menuBtn.focus()
+      }
+    })
+
+    document.addEventListener('click', (e) => {
+      const target = e.target as Node
+      if (isOpen() && !menu.contains(target) && !menuBtn.contains(target)) setOpen(false)
+    })
+
+    // Close when the cart opens, and when the viewport grows to desktop
+    window.addEventListener('open-cart', () => setOpen(false))
+    window.matchMedia('(min-width: 768px)').addEventListener('change', (e) => {
+      if (e.matches) setOpen(false)
+    })
+  }
 </script>
