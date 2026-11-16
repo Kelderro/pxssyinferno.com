@@ -34,6 +34,26 @@ jobs:
       - name: Build studio
         run: pnpm --filter studio build
 
+  # ── Layer 1b: Lint ────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.22.1'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint studio
+        run: pnpm --filter studio lint
+
   # ── Layer 2: Unit tests ───────────────────────────────────────────────────
   unit:
     name: Unit tests
