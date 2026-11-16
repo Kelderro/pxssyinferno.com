@@ -39,8 +39,9 @@ let stripeBody: URLSearchParams | null = null
 
 function mockFetch() {
   return vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.includes('.api.sanity.io')) {
-      const ids: string[] = JSON.parse(new URL(url).searchParams.get('$ids') || '[]')
+    const parsed = new URL(url)
+    if (parsed.protocol === 'https:' && parsed.hostname.endsWith('.api.sanity.io')) {
+      const ids: string[] = JSON.parse(parsed.searchParams.get('$ids') || '[]')
       return new Response(JSON.stringify({ result: PRODUCTS.filter((p) => ids.includes(p._id)) }))
     }
     if (url === 'https://api.stripe.com/v1/checkout/sessions') {
