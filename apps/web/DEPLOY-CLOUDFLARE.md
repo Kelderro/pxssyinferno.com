@@ -90,3 +90,39 @@ Every push to the connected branch rebuilds and redeploys. Changing a secret
 requires a new deployment to take effect (Deployments → Retry, or push a commit).
 The Sanity **Studio** deploys separately (`cd apps/studio && sanity deploy`); it
 is not part of this Pages project.
+
+GitHub Actions does not deploy anything: it only runs CI (build, unit and e2e
+tests, CodeQL). Cloudflare Pages builds and deploys through its own Git
+connection.
+
+## Rebuild when content changes in Sanity
+The site is static: products, prices and pages are read from Sanity **at build
+time**. Publishing a change in Sanity does nothing to the live site until the
+next build, unless a webhook triggers one.
+
+This matters for prices. `/api/checkout` reads prices from Sanity **live**, so
+between a Sanity edit and the next build the page can show the old price while
+Stripe charges the new one. A new £ price also keeps showing "Not available in £"
+until the rebuild.
+
+Set it up once (no code, no GitHub Action needed):
+
+1. **Cloudflare deploy hook.** Pages project → **Settings → Builds → Deploy
+   hooks** → *Add deploy hook*. Name it `sanity`, branch `main`. Copy the URL.
+   Treat it as a secret: anyone with it can trigger builds.
+2. **Sanity webhook.** [sanity.io/manage](https://www.sanity.io/manage) → this
+   project → **API → Webhooks** → *Create webhook*:
+   - **URL:** the deploy hook URL from step 1
+   - **Dataset:** `production`
+   - **Trigger on:** Create, Update, Delete
+   - **Filter (optional):** `_type in ["product", "faq", "about", "terms"]`, so
+     only content the site renders triggers a build
+   - **HTTP method:** `POST`; leave projection, headers and secret empty
+   - **Drafts:** leave off, so only *published* changes trigger a build
+3. **Test it.** Publish a small change in the Studio, then check that a new
+   deployment appears under the Pages project's **Deployments** (a minute or so).
+
+Each publish starts one build, so publishing many documents in a row queues
+several builds; Cloudflare runs them one after another and the last one wins.
+To rebuild by hand, use **Deployments → Retry deployment** on the latest
+production deployment.
