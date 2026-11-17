@@ -34,7 +34,7 @@ Mark `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SANITY_WRITE_TOKEN` and `RES
 | `CONTACT_TO_EMAIL` | yes (forms) | `info@kelderro.nl` | Where enquiries/requests land. |
 | `CONTACT_FROM_EMAIL` | yes (forms) | `shop@pxssyinferno.com` | Must be a **verified** Resend sender on your domain. |
 | `STRIPE_CURRENCY` | no | `eur` | Fallback only (`eur` or `gbp`). The shopper's €/£ choice is sent with each checkout and wins. |
-| `SITE_URL` | no | `https://pxssyinferno.com` | Used for success/cancel URLs; falls back to the request origin. |
+| `SITE_URL` | no | `https://pxssyinferno.com` | Set at domain cutover. Used for Stripe success/cancel URLs (falls back to the request origin) and, at build time, for canonical URLs, the sitemap and robots.txt (falls back to `https://pxssyinferno-com.pages.dev`). |
 | `ALLOWED_SHIPPING_COUNTRIES` | no | `NL,BE,DE,FR,GB,US,CA,AU` | Countries offered at checkout. |
 | `SANITY_PROJECT_ID` / `SANITY_DATASET` / `SANITY_API_VERSION` | no | — | Defaults baked in (`whp8gyuq` / `production` / `2026-03-01`). |
 
