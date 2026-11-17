@@ -54,7 +54,7 @@ CONTACT_FROM_EMAIL  = shop@pxssyinferno.com   (verified Resend sender domain)
 
 **Optional (defaults exist):**
 ```
-SITE_URL                   = https://pxssyinferno.com   (used for Stripe success/cancel URLs)
+SITE_URL                   = https://pxssyinferno.com   (set at cutover, see §5; default https://pxssyinferno-com.pages.dev)
 STRIPE_CURRENCY            = eur   (fallback only; the shopper's €/£ choice wins)
 ALLOWED_SHIPPING_COUNTRIES = NL,BE,DE,FR,GB,US,CA,AU
 ```
@@ -78,8 +78,26 @@ the `*.pages.dev` URL first, keep a backup/export of the WordPress site, then ad
 the custom domain to cut over. If the domain's DNS is already in Cloudflare, the
 record is created for you; otherwise follow the DNS instructions shown.
 
-After the domain is live, set `SITE_URL=https://pxssyinferno.com` and switch
-`STRIPE_SECRET_KEY` to your live key once you've completed Stripe activation.
+After the domain is live:
+
+1. Set `SITE_URL=https://pxssyinferno.com` (Production) and **redeploy**. The
+   build and the functions both read it:
+   - Stripe's success / cancel return URLs (`/api/checkout`);
+   - canonical URLs, `og:url`, share images, `sitemap-index.xml` and the
+     `robots.txt` Sitemap line.
+
+   Until it's set, all of these use `https://pxssyinferno-com.pages.dev`, so
+   search engines index that address in the meantime.
+2. Redirect the old address to the domain so search results and shared links
+   move over. `pages.dev` isn't in your zone, so zone Redirect Rules can't do
+   this; use an account-level **Bulk Redirect** (Cloudflare dashboard →
+   **Bulk Redirects**): source `pxssyinferno-com.pages.dev`, target
+   `https://pxssyinferno.com`, status **301**, with *Preserve query string*,
+   *Subpath matching* and *Preserve path suffix* on, and *Include subdomains*
+   **off**, so branch previews (`<branch>.pxssyinferno-com.pages.dev`) keep
+   working. Cloudflare already marks those previews `noindex`.
+3. Switch `STRIPE_SECRET_KEY` to your live key once you've completed Stripe
+   activation.
 
 ## 6. Stripe & Resend dashboards
 
