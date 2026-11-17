@@ -17,7 +17,7 @@ CONTACT_TO_EMAIL=info@kelderro.nl
 CONTACT_FROM_EMAIL=shop@pxssyinferno.com
 
 # --- Optional overrides (defaults shown) ---
-# SITE_URL=https://pxssyinferno.com
+# SITE_URL=https://pxssyinferno.com   (set at cutover; also used by the build for canonical URLs / sitemap)
 # ALLOWED_SHIPPING_COUNTRIES=NL,BE,DE,FR,GB,US,CA,AU
 # SANITY_PROJECT_ID=whp8gyuq
 # SANITY_DATASET=production
